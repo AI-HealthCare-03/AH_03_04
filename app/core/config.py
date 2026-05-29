@@ -33,6 +33,20 @@ class Config(BaseSettings):
     REDIS_URL: str | None = None
 
     COOKIE_DOMAIN: str = "localhost"
+    CORS_ALLOW_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173"
+    CORS_ALLOW_CREDENTIALS: bool = True
+
+    SECURITY_CSP: str = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "object-src 'none'; "
+        "base-uri 'self'"
+    )
+    HSTS_MAX_AGE_SECONDS: int = 31_536_000
 
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
@@ -42,3 +56,6 @@ class Config(BaseSettings):
     AUTH_RATE_LIMIT_MAX_FAILURES: int = 5
     AUTH_RATE_LIMIT_MAX_IP_FAILURES: int = 30
     AUTH_RATE_LIMIT_WINDOW_SECONDS: int = 60
+
+    def get_cors_allow_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ALLOW_ORIGINS.split(",") if origin.strip()]
