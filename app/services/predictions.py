@@ -54,6 +54,12 @@ DYSLIPIDEMIA_UPPER_RULES = {
     "ldl_cholesterol": (130, 160, "LDL 콜레스테롤"),
     "triglycerides": (150, 200, "중성지방"),
 }
+PREDICTION_PROGRESS = {
+    PredictionStatus.PENDING: (0, "예측 요청 접수"),
+    PredictionStatus.RUNNING: (60, "AI 모델 실행 중"),
+    PredictionStatus.SUCCESS: (100, "예측 완료"),
+    PredictionStatus.FAILED: (100, "예측 실패"),
+}
 
 
 def _calculate_age(birth_date: date, today: date | None = None) -> int:
@@ -321,6 +327,8 @@ class PredictionService:
             task_uuid=str(uuid.uuid4()),
             input_snapshot=snapshot,
             prediction_mode=PredictionMode(data.prediction_mode),
+            progress_percent=PREDICTION_PROGRESS[PredictionStatus.PENDING][0],
+            current_step=PREDICTION_PROGRESS[PredictionStatus.PENDING][1],
         )
         return PredictionTaskCreateResponse(
             task_uuid=task.task_uuid,
@@ -334,8 +342,10 @@ class PredictionService:
             return
         started = time.perf_counter()
         task.status = PredictionStatus.RUNNING
+        task.progress_percent = PREDICTION_PROGRESS[PredictionStatus.RUNNING][0]
+        task.current_step = PREDICTION_PROGRESS[PredictionStatus.RUNNING][1]
         task.started_at = datetime.now(config.TIMEZONE)
-        await task.save(update_fields=["status", "started_at"])
+        await task.save(update_fields=["status", "progress_percent", "current_step", "started_at"])
 
         try:
             raw_input, snapshot = await self._build_model_input(task.input_snapshot_id)
@@ -351,23 +361,39 @@ class PredictionService:
                 inference_ms=int((time.perf_counter() - started) * 1000),
                 disclaimer=DISCLAIMER,
             )
+            health = await ChronicHealthInput.get(id=snapshot.chronic_health_input_id)
+            lifestyle = await LifestyleInput.get(id=snapshot.lifestyle_input_id)
+            lipid = (
+                await LipidObesityRecord.get(id=snapshot.lipid_obesity_record_id)
+                if snapshot.lipid_obesity_record_id is not None
+                else None
+            )
+            renal = await RenalRecord.get(id=snapshot.renal_record_id) if snapshot.renal_record_id is not None else None
             for disease, values in disease_predictions.items():
+                values["risk_factors"] = self._risk_factors(disease, health, lifestyle, lipid, renal)
                 await PredictionResultItem.create(result=result, disease_code=disease, **values)
             task.status = PredictionStatus.SUCCESS
         except Exception as exc:
             task.status = PredictionStatus.FAILED
             task.error_message = str(exc)[:500]
+        task.progress_percent = self._task_progress(task.status)[0]
+        task.current_step = self._task_progress(task.status)[1]
         task.completed_at = datetime.now(config.TIMEZONE)
-        await task.save(update_fields=["status", "error_message", "completed_at"])
+        await task.save(update_fields=["status", "progress_percent", "current_step", "error_message", "completed_at"])
 
     async def get_task_status(self, user: User, task_uuid: str) -> PredictionTaskStatusResponse:
         task = await PredictionTask.get_or_none(task_uuid=task_uuid, user_id=user.id)
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="예측 작업을 찾을 수 없습니다.")
         result = await PredictionResult.get_or_none(task_id=task.id)
+        progress_percent, current_step = (
+            (task.progress_percent, task.current_step) if task.current_step else self._task_progress(task.status)
+        )
         return PredictionTaskStatusResponse(
             task_uuid=task.task_uuid,
             status=task.status.value,
+            progress_percent=progress_percent,
+            current_step=current_step,
             result_id=result.id if result else None,
             error_message=task.error_message,
         )
@@ -385,6 +411,7 @@ class PredictionService:
                 "is_at_risk": item.is_at_risk,
                 "risk_level": item.risk_level,
                 "message": item.message,
+                "risk_factors": item.risk_factors or [],
             }
         return PredictionResultResponse(
             result_id=result.id,
@@ -393,6 +420,83 @@ class PredictionService:
             input_completeness=InputCompletenessResponse(**result.input_completeness),
             disclaimer=result.disclaimer,
         )
+
+    @staticmethod
+    def _task_progress(task_status: PredictionStatus) -> tuple[int, str]:
+        return PREDICTION_PROGRESS[task_status]
+
+    @staticmethod
+    def _risk_factors(
+        disease_code: str,
+        health: ChronicHealthInput,
+        lifestyle: LifestyleInput,
+        lipid: LipidObesityRecord | None,
+        renal: RenalRecord | None,
+    ) -> list[str]:
+        if disease_code == "DIABETES":
+            return PredictionService._diabetes_risk_factors(health, lifestyle, lipid)
+        if disease_code == "HYPERTENSION":
+            return PredictionService._hypertension_risk_factors(health, lipid)
+        if disease_code == "CKD":
+            return PredictionService._ckd_risk_factors(health, renal)
+        return []
+
+    @staticmethod
+    def _diabetes_risk_factors(
+        health: ChronicHealthInput,
+        lifestyle: LifestyleInput,
+        lipid: LipidObesityRecord | None,
+    ) -> list[str]:
+        factors: list[str] = []
+        if health.glucose_fasting is not None and health.glucose_fasting >= 126:
+            factors.append("공복혈당이 당뇨 의심 기준 이상입니다.")
+        if float(health.bmi) >= 25:
+            factors.append("BMI가 비만 범위입니다.")
+        if health.fh_diabetes_father or health.fh_diabetes_mother or health.fh_diabetes_sibling:
+            factors.append("당뇨 가족력이 입력되었습니다.")
+        if lifestyle.walking_days is not None and lifestyle.walking_days < 3:
+            factors.append("주간 걷기 일수가 낮은 편입니다.")
+        factors.extend(PredictionService._abdominal_obesity_factors(health, lipid))
+        return factors
+
+    @staticmethod
+    def _hypertension_risk_factors(health: ChronicHealthInput, lipid: LipidObesityRecord | None) -> list[str]:
+        factors: list[str] = []
+        if health.sbp is not None and health.sbp >= 140:
+            factors.append("수축기 혈압이 높은 범위입니다.")
+        if health.dbp is not None and health.dbp >= 90:
+            factors.append("이완기 혈압이 높은 범위입니다.")
+        if float(health.bmi) >= 25:
+            factors.append("BMI가 비만 범위입니다.")
+        if health.fh_hypertension_father or health.fh_hypertension_mother or health.fh_hypertension_sibling:
+            factors.append("고혈압 가족력이 입력되었습니다.")
+        factors.extend(PredictionService._abdominal_obesity_factors(health, lipid))
+        return factors
+
+    @staticmethod
+    def _ckd_risk_factors(health: ChronicHealthInput, renal: RenalRecord | None) -> list[str]:
+        factors: list[str] = []
+        diagnoses = set(health.diagnosed_diseases)
+        if renal and renal.creatinine is not None and float(renal.creatinine) >= 1.3:
+            factors.append("크레아티닌 수치가 높은 범위입니다.")
+        if renal and renal.bun is not None and float(renal.bun) >= 20:
+            factors.append("BUN 수치가 높은 범위입니다.")
+        if renal and renal.urine_protein_pos:
+            factors.append("소변 단백 양성으로 입력되었습니다.")
+        if "DIABETES" in diagnoses or "HYPERTENSION" in diagnoses:
+            factors.append("당뇨 또는 고혈압 진단 이력이 입력되었습니다.")
+        return factors
+
+    @staticmethod
+    def _abdominal_obesity_factors(health: ChronicHealthInput, lipid: LipidObesityRecord | None) -> list[str]:
+        waist = HealthInputService._first_float(
+            lipid.waist_circumference if lipid else None,
+            health.waist_circumference,
+        )
+        waist_threshold = 90 if health.gender == Gender.MALE else 85
+        if waist is not None and waist >= waist_threshold:
+            return ["허리둘레가 복부비만 기준 이상입니다."]
+        return []
 
     @staticmethod
     def _missing_optional_measurements(
