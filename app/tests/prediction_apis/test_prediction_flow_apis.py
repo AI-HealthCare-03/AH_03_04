@@ -82,8 +82,11 @@ class TestPredictionFlowAPIs(TestCase):
         assert task_response.status_code == status.HTTP_202_ACCEPTED
         assert task_response.json()["data"]["status"] == "PENDING"
         assert status_response.json()["data"]["status"] == "SUCCESS"
+        assert status_response.json()["data"]["progress_percent"] == 100
+        assert status_response.json()["data"]["current_step"] == "예측 완료"
         result = result_response.json()["data"]
         assert set(result["disease_risks"]) == {"diabetes", "hypertension", "kidney"}
+        assert "당뇨 가족력이 입력되었습니다." in result["disease_risks"]["diabetes"]["risk_factors"]
         assert result["input_completeness"]["used_default_values"] is True
         assert "total_cholesterol" in result["input_completeness"]["missing_fields"]
         assert "waist_circumference" not in result["input_completeness"]["missing_fields"]

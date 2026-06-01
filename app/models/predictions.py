@@ -136,6 +136,8 @@ class PredictionTask(models.Model):
     input_snapshot = fields.ForeignKeyField("models.PredictionInputSnapshot", related_name="tasks")
     prediction_mode = fields.CharEnumField(enum_type=PredictionMode, default=PredictionMode.SCREENING)
     status = fields.CharEnumField(enum_type=PredictionStatus, default=PredictionStatus.PENDING)
+    progress_percent = fields.IntField(default=0)
+    current_step = fields.CharField(max_length=100, null=True)
     requested_at = fields.DatetimeField(auto_now_add=True)
     started_at = fields.DatetimeField(null=True)
     completed_at = fields.DatetimeField(null=True)
@@ -171,6 +173,7 @@ class PredictionResultItem(models.Model):
     is_at_risk = fields.BooleanField()
     risk_level = fields.CharField(max_length=10)
     message = fields.CharField(max_length=500)
+    risk_factors = fields.JSONField(default=list)
 
     class Meta:
         table = "prediction_result_items"

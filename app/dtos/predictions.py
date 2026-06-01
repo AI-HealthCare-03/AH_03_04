@@ -160,6 +160,8 @@ class PredictionTaskCreateResponse(BaseModel):
 class PredictionTaskStatusResponse(BaseModel):
     task_uuid: str
     status: str
+    progress_percent: int
+    current_step: str
     result_id: int | None = None
     error_message: str | None = None
 
@@ -170,6 +172,7 @@ class DiseaseRiskResponse(BaseModel):
     is_at_risk: bool
     risk_level: str
     message: str
+    risk_factors: list[str] = Field(default_factory=list)
 
 
 class InputCompletenessResponse(BaseModel):
