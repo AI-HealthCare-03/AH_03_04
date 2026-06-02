@@ -2,9 +2,27 @@ from datetime import date, datetime, time, timedelta
 
 from fastapi import HTTPException, status
 
-from app.dtos.reports import WeeklyReportGenerateRequest, WeeklyReportResponse, WeeklyReportSourceSummaryResponse
+from app.dtos.reports import (
+    CurrentWeeklyReportResponse,
+    WeeklyReportChallengeSummaryResponse,
+    WeeklyReportGenerateRequest,
+    WeeklyReportMetricSummaryResponse,
+    WeeklyReportResponse,
+    WeeklyReportSourceSummaryResponse,
+    WeeklyReportSummaryCardResponse,
+    WeeklyReportTrendSummaryResponse,
+)
 from app.models.challenges import ChallengeCheckin
-from app.models.predictions import ChronicHealthInput, LipidObesityRecord, PredictionResult, RenalRecord
+from app.models.predictions import (
+    ActivityLog,
+    ChronicHealthInput,
+    ExerciseLog,
+    LipidObesityRecord,
+    MealLog,
+    PredictionResult,
+    RenalRecord,
+    VitalRecord,
+)
 from app.models.reports import WeeklyReport
 from app.models.users import User
 
@@ -26,7 +44,12 @@ class WeeklyReportService:
             user=user,
             week_start_date=week_start,
             week_end_date=week_end,
+            status="AVAILABLE",
             source_summary=source_summary,
+            summary_cards=self._build_summary_cards(source_summary),
+            metric_summaries=self._build_metric_summaries(source_summary),
+            trend_summary=self._build_trend_summary(None),
+            challenge_summary=self._build_challenge_summary(source_summary),
             report_text=self._build_report_text(source_summary),
             provider=RULE_BASED_PROVIDER,
             model_name=RULE_BASED_MODEL,
@@ -36,12 +59,32 @@ class WeeklyReportService:
         )
         return self._to_response(report, generated=True)
 
-    async def get_current_week(self, user: User) -> WeeklyReportResponse:
-        week_start, _ = self._week_range()
+    async def get_current_week(self, user: User) -> CurrentWeeklyReportResponse:
+        week_start, week_end = self._week_range()
         report = await WeeklyReport.get_or_none(user_id=user.id, week_start_date=week_start)
-        if report is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="이번 주 리포트를 찾을 수 없습니다.")
-        return self._to_response(report, generated=False)
+        if report:
+            return CurrentWeeklyReportResponse(
+                status="AVAILABLE",
+                week_start_date=week_start,
+                week_end_date=week_end,
+                report=self._to_response(report, generated=False),
+            )
+
+        source_summary = await self._build_source_summary(user.id, week_start, week_end)
+        if self._has_report_source_data(source_summary):
+            return CurrentWeeklyReportResponse(
+                status="GENERATABLE",
+                week_start_date=week_start,
+                week_end_date=week_end,
+                empty_message="이번 주 건강 데이터로 리포트를 생성할 수 있습니다.",
+            )
+
+        return CurrentWeeklyReportResponse(
+            status="EMPTY",
+            week_start_date=week_start,
+            week_end_date=week_end,
+            empty_message="이번 주 리포트를 만들 건강 데이터가 아직 없습니다.",
+        )
 
     async def get_report(self, user: User, report_id: int) -> WeeklyReportResponse:
         report = await WeeklyReport.get_or_none(id=report_id, user_id=user.id)
@@ -72,6 +115,26 @@ class WeeklyReportService:
             record_date__gte=week_start,
             record_date__lte=week_end,
         ).count()
+        vital_record_count = await VitalRecord.filter(
+            user_id=user_id,
+            record_date__gte=week_start,
+            record_date__lte=week_end,
+        ).count()
+        activity_log_count = await ActivityLog.filter(
+            user_id=user_id,
+            record_date__gte=week_start,
+            record_date__lte=week_end,
+        ).count()
+        exercise_log_count = await ExerciseLog.filter(
+            user_id=user_id,
+            exercise_date__gte=week_start,
+            exercise_date__lte=week_end,
+        ).count()
+        meal_log_count = await MealLog.filter(
+            user_id=user_id,
+            meal_date__gte=week_start,
+            meal_date__lte=week_end,
+        ).count()
         predictions = (
             await PredictionResult.filter(user_id=user_id, created_at__gte=start_dt, created_at__lt=end_dt)
             .order_by("-created_at")
@@ -86,6 +149,10 @@ class WeeklyReportService:
             "health_survey_count": health_survey_count,
             "lipid_obesity_record_count": lipid_obesity_record_count,
             "renal_record_count": renal_record_count,
+            "vital_record_count": vital_record_count,
+            "activity_log_count": activity_log_count,
+            "exercise_log_count": exercise_log_count,
+            "meal_log_count": meal_log_count,
             "prediction_count": len(predictions),
             "at_risk_prediction_count": sum(
                 1 for prediction in predictions if any(item.is_at_risk for item in prediction.items)
@@ -94,11 +161,29 @@ class WeeklyReportService:
         }
 
     @staticmethod
+    def _has_report_source_data(source_summary: dict[str, int]) -> bool:
+        return any(
+            source_summary.get(field, 0) > 0
+            for field in [
+                "health_survey_count",
+                "lipid_obesity_record_count",
+                "renal_record_count",
+                "vital_record_count",
+                "activity_log_count",
+                "exercise_log_count",
+                "meal_log_count",
+                "prediction_count",
+                "challenge_checkin_count",
+            ]
+        )
+
+    @staticmethod
     def _build_report_text(source_summary: dict[str, int]) -> str:
         total_health_records = (
             source_summary["health_survey_count"]
             + source_summary["lipid_obesity_record_count"]
             + source_summary["renal_record_count"]
+            + source_summary.get("vital_record_count", 0)
         )
         parts = []
         if total_health_records == 0:
@@ -126,6 +211,140 @@ class WeeklyReportService:
         return " ".join(parts)
 
     @staticmethod
+    def _build_summary_cards(source_summary: dict[str, int]) -> list[dict[str, str]]:
+        total_health_records = WeeklyReportService._total_health_records(source_summary)
+        at_risk_count = source_summary.get("at_risk_prediction_count", 0)
+        meal_count = source_summary.get("meal_log_count", 0)
+        exercise_count = source_summary.get("exercise_log_count", 0)
+        challenge_count = source_summary.get("challenge_checkin_count", 0)
+        return [
+            {
+                "label": "건강 기록",
+                "value": f"{total_health_records}건",
+                "status": "NORMAL" if total_health_records > 0 else "UNAVAILABLE",
+                "description": "이번 주 입력된 건강 데이터 수입니다.",
+            },
+            {
+                "label": "AI 위험 신호",
+                "value": f"{at_risk_count}건",
+                "status": "HIGH" if at_risk_count > 0 else "NORMAL",
+                "description": "이번 주 예측 결과 중 위험 신호가 포함된 건수입니다.",
+            },
+            {
+                "label": "식단 기록",
+                "value": f"{meal_count}건",
+                "status": "NORMAL" if meal_count > 0 else "UNAVAILABLE",
+                "description": "이번 주 저장한 식단 기록 수입니다.",
+            },
+            {
+                "label": "운동 기록",
+                "value": f"{exercise_count}건",
+                "status": "NORMAL" if exercise_count > 0 else "UNAVAILABLE",
+                "description": "이번 주 저장한 운동 기록 수입니다.",
+            },
+            {
+                "label": "챌린지",
+                "value": f"{challenge_count}회",
+                "status": "NORMAL" if challenge_count >= 3 else "CAUTION" if challenge_count > 0 else "UNAVAILABLE",
+                "description": "이번 주 챌린지 체크인 횟수입니다.",
+            },
+        ]
+
+    @staticmethod
+    def _build_metric_summaries(source_summary: dict[str, int]) -> list[dict[str, str]]:
+        return [
+            WeeklyReportService._metric_summary(
+                "VITAL_RECORDS",
+                "혈압·혈당",
+                source_summary.get("vital_record_count", 0),
+                "건",
+                "혈압·혈당 기록 입력 횟수입니다.",
+            ),
+            WeeklyReportService._metric_summary(
+                "MEAL_LOGS",
+                "식단",
+                source_summary.get("meal_log_count", 0),
+                "건",
+                "식단 기록 입력 횟수입니다.",
+            ),
+            WeeklyReportService._metric_summary(
+                "EXERCISE_LOGS",
+                "운동",
+                source_summary.get("exercise_log_count", 0),
+                "건",
+                "운동 기록 입력 횟수입니다.",
+            ),
+            WeeklyReportService._metric_summary(
+                "ACTIVITY_LOGS",
+                "생활습관",
+                source_summary.get("activity_log_count", 0),
+                "건",
+                "생활습관 기록 입력 횟수입니다.",
+            ),
+            WeeklyReportService._metric_summary(
+                "CHALLENGE_CHECKINS",
+                "챌린지",
+                source_summary.get("challenge_checkin_count", 0),
+                "회",
+                "챌린지 실천 체크인 횟수입니다.",
+            ),
+        ]
+
+    @staticmethod
+    def _metric_summary(metric: str, label: str, count: int, unit: str, description: str) -> dict[str, str]:
+        return {
+            "metric": metric,
+            "label": label,
+            "value": str(count),
+            "unit": unit,
+            "status": "NORMAL" if count > 0 else "UNAVAILABLE",
+            "description": description,
+        }
+
+    @staticmethod
+    def _build_trend_summary(previous_report: WeeklyReport | None) -> dict[str, str | int | None]:
+        if previous_report is None:
+            return {
+                "status": "UNAVAILABLE",
+                "message": "전주 리포트가 없어 추이 비교는 제공하지 않습니다.",
+                "previous_week_report_id": None,
+            }
+        return {
+            "status": "UNCHANGED",
+            "message": "전주 대비 상세 추이 비교는 추후 고도화 예정입니다.",
+            "previous_week_report_id": previous_report.id,
+        }
+
+    @staticmethod
+    def _build_challenge_summary(source_summary: dict[str, int]) -> dict[str, str | int | float]:
+        checkin_count = source_summary.get("challenge_checkin_count", 0)
+        completion_rate = round(min(checkin_count / 7, 1.0) * 100, 1)
+        if checkin_count == 0:
+            status_value = "UNAVAILABLE"
+            message = "이번 주 챌린지 체크인이 없습니다."
+        elif completion_rate >= 100:
+            status_value = "ACHIEVED"
+            message = "이번 주 챌린지를 매일 실천했습니다."
+        else:
+            status_value = "IN_PROGRESS"
+            message = f"이번 주 챌린지를 {checkin_count}회 실천했습니다."
+        return {
+            "checkin_count": checkin_count,
+            "completion_rate": completion_rate,
+            "status": status_value,
+            "message": message,
+        }
+
+    @staticmethod
+    def _total_health_records(source_summary: dict[str, int]) -> int:
+        return (
+            source_summary.get("health_survey_count", 0)
+            + source_summary.get("lipid_obesity_record_count", 0)
+            + source_summary.get("renal_record_count", 0)
+            + source_summary.get("vital_record_count", 0)
+        )
+
+    @staticmethod
     def _week_range(today: date | None = None) -> tuple[date, date]:
         current = today or date.today()
         week_start = current - timedelta(days=current.weekday())
@@ -138,7 +357,12 @@ class WeeklyReportService:
             report_id=report.id,
             week_start_date=report.week_start_date,
             week_end_date=report.week_end_date,
+            status=report.status,
             source_summary=WeeklyReportSourceSummaryResponse(**report.source_summary),
+            summary_cards=[WeeklyReportSummaryCardResponse(**item) for item in report.summary_cards],
+            metric_summaries=[WeeklyReportMetricSummaryResponse(**item) for item in report.metric_summaries],
+            trend_summary=WeeklyReportTrendSummaryResponse(**report.trend_summary),
+            challenge_summary=WeeklyReportChallengeSummaryResponse(**report.challenge_summary),
             report_text=report.report_text,
             provider=report.provider,
             model_name=report.model_name,
