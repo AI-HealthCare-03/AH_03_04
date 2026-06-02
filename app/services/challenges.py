@@ -186,7 +186,9 @@ class ChallengeService:
         active_participations = [
             item for item in participations if item.status == ChallengeParticipationStatus.JOINED.value
         ]
-        completed_count = sum(1 for item in participations if item.status == ChallengeParticipationStatus.COMPLETED.value)
+        completed_count = sum(
+            1 for item in participations if item.status == ChallengeParticipationStatus.COMPLETED.value
+        )
         weekly_activity = ChallengeService._build_weekly_activity(participations, week_start)
         completed_mission_count = sum(item.completed_count for item in weekly_activity)
         weekly_completion_rate = ChallengeService._weekly_completion_rate(
@@ -196,11 +198,7 @@ class ChallengeService:
             week_start,
             week_end,
         )
-        checkin_dates = {
-            checkin.checkin_date
-            for participation in participations
-            for checkin in participation.checkins
-        }
+        checkin_dates = {checkin.checkin_date for participation in participations for checkin in participation.checkins}
 
         return ChallengeDashboardSummaryResponse(
             active_count=len(active_participations),
