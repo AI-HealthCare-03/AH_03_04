@@ -61,3 +61,37 @@ def test_virtual_pet_activity_response_maps_recent_activity():
     assert result.description == "쿠키 펫을 선택했습니다."
     assert result.experience_delta == 0
     assert result.created_at == created_at
+
+
+def test_pet_reward_experience_applies_type_bonus():
+    assert VirtualPetService._reward_experience("EXERCISE_30", 50, PetType.DOG) == 60
+    assert VirtualPetService._reward_experience("DAILY_HEALTH_LOG", 40, PetType.CAT) == 48
+    assert VirtualPetService._reward_experience("VITAL_BP", 30, PetType.DOG) == 30
+
+
+def test_pet_experience_can_level_up_and_update_growth_stage():
+    pet = SimpleNamespace(
+        level=4,
+        experience=950,
+        next_level_experience=1000,
+        growth_stage=PetGrowthStage.STAGE_1,
+    )
+
+    VirtualPetService._apply_experience(pet, 100)
+
+    assert pet.level == 5
+    assert pet.experience == 50
+    assert pet.next_level_experience == 5000
+    assert pet.growth_stage == PetGrowthStage.STAGE_2
+
+
+def test_pet_growth_stage_uses_level_thresholds():
+    assert VirtualPetService._growth_stage(1) == PetGrowthStage.STAGE_1
+    assert VirtualPetService._growth_stage(5) == PetGrowthStage.STAGE_2
+    assert VirtualPetService._growth_stage(10) == PetGrowthStage.STAGE_3
+
+
+def test_pet_percent_caps_at_one_hundred():
+    assert VirtualPetService._percent(3, 4) == 75
+    assert VirtualPetService._percent(10, 4) == 100
+    assert VirtualPetService._percent(1, 0) == 0

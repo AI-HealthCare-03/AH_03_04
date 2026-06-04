@@ -5,6 +5,7 @@ from fastapi.responses import ORJSONResponse as Response
 
 from app.dependencies.security import get_request_user
 from app.dtos.pets import (
+    PetRewardClaimResponse,
     VirtualPetCreateRequest,
     VirtualPetCreateResponse,
     VirtualPetNameUpdateRequest,
@@ -56,4 +57,17 @@ async def update_my_virtual_pet_name(
     service: Annotated[VirtualPetService, Depends(VirtualPetService)],
 ) -> Response:
     result = await service.update_pet_name(user, request)
+    return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
+
+
+@pet_router.post(
+    "/reward-tasks/claims",
+    response_model=DataResponse[PetRewardClaimResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def claim_virtual_pet_reward_tasks(
+    user: Annotated[User, Depends(get_request_user)],
+    service: Annotated[VirtualPetService, Depends(VirtualPetService)],
+) -> Response:
+    result = await service.claim_reward_tasks(user)
     return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
