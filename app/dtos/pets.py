@@ -71,6 +71,15 @@ class PetRecentActivityResponse(BaseModel):
     created_at: datetime
 
 
+class PetRewardClaimResponse(BaseModel):
+    awarded_experience: int
+    claimed_task_count: int
+    level: int
+    experience: int
+    next_level_experience: int
+    growth_stage: PetGrowthStage
+
+
 class VirtualPetStatusResponse(BaseModel):
     has_pet: bool
     pet: VirtualPetResponse | None = None
