@@ -1733,3 +1733,121 @@ button {
   background: #fff5f7;
   color: #d4183d;
 }
+
+/* ── 건강 목표 (GoalPage) ───────────────────────────── */
+
+.goal-page {
+  max-width: 1000px;
+}
+
+.page-heading-row {
+  align-items: flex-end;
+}
+
+.page-heading-row .page-heading {
+  flex: 1;
+}
+
+.goal-section {
+  display: grid;
+  gap: 22px;
+  padding: 24px;
+}
+
+.goal-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.goal-section-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.goal-updated-at {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.goal-group {
+  display: grid;
+  gap: 12px;
+}
+
+.goal-group-label {
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eceff3;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.goal-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.goal-metric-grid--wide {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.goal-metric-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #eceff3;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.goal-val {
+  font-size: 15px;
+  color: var(--foreground);
+}
+
+.goal-val-empty {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.goal-edit-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.goal-edit-input {
+  width: 0;
+  flex: 1;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #c9d0d8;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.goal-edit-input:focus {
+  outline: 2px solid var(--brand-green);
+  outline-offset: -1px;
+}
+
+.goal-edit-unit {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.goal-cancel-btn {
+  width: auto;
+  padding: 0 18px;
+}

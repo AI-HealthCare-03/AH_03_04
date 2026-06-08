@@ -15,6 +15,7 @@ import { PredictionHistoryPage } from "./pages/PredictionHistoryPage";
 import { PredictionProgressPage } from "./pages/PredictionProgressPage";
 import { PredictionRequestPage } from "./pages/PredictionRequestPage";
 import { PredictionResultPage } from "./pages/PredictionResultPage";
+import { GoalPage } from "./pages/health/GoalPage";
 
 export type AppRoute =
   | "/"
@@ -31,6 +32,7 @@ export type AppRoute =
   | "/mypage"
   | "/mypage/profile"
   | "/health"
+  | "/health/goal"
   | "/food"
   | "/reports"
   | "/challenges"
@@ -54,6 +56,7 @@ function normalizePath(pathname: string): AppRoute {
     "/mypage",
     "/mypage/profile",
     "/health",
+    "/health/goal",
     "/food",
     "/reports",
     "/challenges",
@@ -106,6 +109,8 @@ export default function App() {
         return <MyProfilePage />;
       case "/health":
         return <PlaceholderPage title="건강 관리" description="건강 기록 입력/조회 화면을 연결할 영역입니다." />;
+      case "/health/goal":
+        return <GoalPage onNavigate={navigate} />;
       case "/food":
         return <PlaceholderPage title="식단 관리" description="식단 입력, 분석 결과, 기록 목록 화면을 연결할 영역입니다." />;
       case "/reports":
