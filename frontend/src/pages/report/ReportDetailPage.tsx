@@ -1,39 +1,140 @@
+import { useEffect, useState } from "react";
+
+import type { AppRoute } from "../../App";
+import { getStoredAccessToken } from "../../api/auth";
+import {
+  getWeeklyReport,
+  getWeeklyReports,
+  type ReportItemStatus,
+  type WeeklyReport,
+  type WeeklyReportMetricSummary,
+  type WeeklyReportSummaryCard,
+} from "../../api/reports";
+import { ErrorState } from "../../components/common/ErrorState";
+import { LoadingState } from "../../components/common/LoadingState";
+
 interface Props {
-  onNavigate: (route: any) => void;
+  onNavigate: (route: AppRoute) => void;
 }
 
-const CATEGORY_SCORES = [
-  { label: "혈압 관리", pct: 85 },
-  { label: "혈당 관리", pct: 72 },
-  { label: "운동 실천", pct: 75 },
-  { label: "식단 관리", pct: 68 },
-  { label: "수면 관리", pct: 88 },
-];
+function selectedReportStorageKey() {
+  return "selectedWeeklyReportId";
+}
+
+function getStatusStyle(status: ReportItemStatus) {
+  if (status === "HIGH") return { background: "#FFF1F2", border: "1px solid #FDA4AF", color: "#E11D48" };
+  if (status === "CAUTION") return { background: "#FFF8E1", border: "1px solid #FFC107", color: "#F59E0B" };
+  if (status === "NORMAL") return { background: "#F0F7F2", border: "1px solid #86EFAC", color: "#3D7A4F" };
+  return { background: "#F3F4F6", border: "1px solid #D1D5DB", color: "#6B7280" };
+}
+
+function getStatusText(status: ReportItemStatus) {
+  if (status === "HIGH") return "주의";
+  if (status === "CAUTION") return "관찰";
+  if (status === "NORMAL") return "양호";
+  return "부족";
+}
+
+function formatDate(date: string) {
+  const [, month, day] = date.split("-");
+  return `${month}.${day}`;
+}
+
+function formatPeriod(start: string, end: string) {
+  return `${formatDate(start)} - ${formatDate(end)}`;
+}
+
+function getWeekTitle(start: string) {
+  const d = new Date(`${start}T00:00:00`);
+  const weekOfMonth = Math.ceil(d.getDate() / 7);
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${weekOfMonth}주차`;
+}
+
+function cardValue(card: WeeklyReportSummaryCard) {
+  return card.value || "확인 필요";
+}
+
+function metricValue(metric: WeeklyReportMetricSummary) {
+  return `${metric.value}${metric.unit ?? ""}`;
+}
 
 export default function ReportDetailPage({ onNavigate }: Props) {
-  // TODO: API 연결 시 실제 데이터 fetch
-  const report = {
-    week: "2026년 5월 2주차",
-    period: "05.11 - 05.17",
-    status: "양호",
-    weeklyAvg: 78,
-    prevDiff: "+6",
-    monthlyAvg: 75,
-    goalRate: 82,
-    aiSummary: `이번 주는 혈압 관리가 우수했습니다.\n특히 정기적인 혈압 측정과 염분 섭취 관리가 눈에 띕니다.\n\n다만 운동 시간이 목표보다 2시간 부족하였으므로,\n주 4회 이상 30분 유산소 운동을 권장합니다.`,
-    cautions: ["혈압이 약간 높은 편입니다", "염분 섭취를 줄여보세요"],
-    praises: ["규칙적인 운동 습관", "충분한 수면 시간"],
-    exerciseDays: 4,
-    dietDays: 6,
-    challengeMissions: 18,
-  };
+  const [report, setReport] = useState<WeeklyReport | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasApiError, setHasApiError] = useState(false);
 
-  const summaryCards = [
-    { label: "주간 평균", value: `${report.weeklyAvg}점`, bg: "#F0F7F2", border: "#86EFAC", color: "#3D7A4F" },
-    { label: "전주 대비", value: `${report.prevDiff}점`, bg: "#FFF8E1", border: "#FFC107", color: "#F59E0B" },
-    { label: "월간 평균", value: `${report.monthlyAvg}점`, bg: "#EFF6FF", border: "#93C5FD", color: "#3B82F6" },
-    { label: "목표 달성률", value: `${report.goalRate}%`, bg: "#FFF1F2", border: "#FDA4AF", color: "#F43F5E" },
-  ];
+  useEffect(() => {
+    const token = getStoredAccessToken();
+    const savedId = Number(sessionStorage.getItem(selectedReportStorageKey()));
+
+    async function loadReport() {
+      setIsLoading(true);
+      try {
+        if (savedId) {
+          const response = await getWeeklyReport(savedId, token);
+          setReport(response.data);
+        } else {
+          const listResponse = await getWeeklyReports(1, token);
+          const firstReport = listResponse.data[0];
+          if (!firstReport) {
+            setReport(null);
+          } else {
+            const response = await getWeeklyReport(firstReport.report_id, token);
+            setReport(response.data);
+            sessionStorage.setItem(selectedReportStorageKey(), String(firstReport.report_id));
+          }
+        }
+        setHasApiError(false);
+      } catch {
+        setHasApiError(true);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadReport();
+  }, []);
+
+  if (isLoading) return <LoadingState message="주간 리포트 상세를 불러오는 중입니다." />;
+
+  if (hasApiError) {
+    return (
+      <div style={{ padding: 24 }}>
+        <ErrorState title="리포트 상세를 불러오지 못했습니다." description="리포트가 삭제되었거나 서버 연결에 실패했습니다." />
+        <button
+          type="button"
+          onClick={() => onNavigate("/reports")}
+          style={{ marginTop: 16, padding: "9px 16px", background: "#3D7A4F", color: "#fff", border: "none", borderRadius: 6, fontSize: 13, cursor: "pointer" }}
+        >
+          목록으로 돌아가기
+        </button>
+      </div>
+    );
+  }
+
+  if (!report) {
+    return (
+      <div style={{ padding: 24, textAlign: "center" }}>
+        <p style={{ fontSize: 15, fontWeight: 700, color: "#555", marginBottom: 8 }}>조회할 리포트가 없습니다.</p>
+        <p style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>리포트를 먼저 생성해 주세요.</p>
+        <button
+          type="button"
+          onClick={() => onNavigate("/reports")}
+          style={{ padding: "9px 16px", background: "#3D7A4F", color: "#fff", border: "none", borderRadius: 6, fontSize: 13, cursor: "pointer" }}
+        >
+          목록으로 돌아가기
+        </button>
+      </div>
+    );
+  }
+
+  const overallStatus = report.summary_cards.some((card) => card.status === "HIGH")
+    ? "HIGH"
+    : report.summary_cards.some((card) => card.status === "CAUTION")
+      ? "CAUTION"
+      : report.summary_cards.some((card) => card.status === "NORMAL")
+        ? "NORMAL"
+        : "UNAVAILABLE";
 
   return (
     <div style={{ padding: "24px" }}>
@@ -43,119 +144,100 @@ export default function ReportDetailPage({ onNavigate }: Props) {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-        <span style={{ fontSize: 15, fontWeight: 700 }}>{report.week} ({report.period})</span>
-        <span style={{ padding: "3px 8px", background: "#F0F7F2", border: "1px solid #86EFAC", borderRadius: 12, fontSize: 10, color: "#3D7A4F" }}>{report.status}</span>
+        <span style={{ fontSize: 15, fontWeight: 700 }}>
+          {getWeekTitle(report.week_start_date)} ({formatPeriod(report.week_start_date, report.week_end_date)})
+        </span>
+        <span style={{ padding: "3px 8px", borderRadius: 12, fontSize: 10, ...getStatusStyle(overallStatus) }}>
+          {getStatusText(overallStatus)}
+        </span>
+        <span style={{ padding: "3px 8px", background: "#F3F4F6", borderRadius: 12, fontSize: 10, color: "#555" }}>
+          {report.source_type === "LLM" ? "AI 생성" : "규칙 기반"}
+        </span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button style={{ padding: "6px 14px", border: "1.5px solid #ddd", borderRadius: 6, background: "#fff", fontSize: 12, cursor: "pointer" }}>PDF 다운로드</button>
-          <button style={{ padding: "6px 14px", border: "1.5px solid #ddd", borderRadius: 6, background: "#fff", fontSize: 12, cursor: "pointer" }}>공유</button>
+          <button
+            type="button"
+            onClick={() => onNavigate("/reports/export")}
+            style={{ padding: "6px 14px", border: "1.5px solid #ddd", borderRadius: 6, background: "#fff", fontSize: 12, cursor: "pointer" }}
+          >
+            내보내기
+          </button>
         </div>
       </div>
 
-      {/* 종합 건강 점수 */}
       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 20, marginBottom: 18 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>종합 건강 점수</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-          {summaryCards.map((card) => (
-            <div key={card.label} style={{ padding: "12px 10px", background: card.bg, border: `1.5px solid ${card.border}`, borderRadius: 8, textAlign: "center" }}>
-              <p style={{ fontSize: 10, color: card.color, marginBottom: 6 }}>{card.label}</p>
-              <p style={{ fontSize: 20, fontWeight: 700, color: card.color }}>{card.value}</p>
+        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>요약 카드</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+          {report.summary_cards.map((card) => (
+            <div key={card.label} style={{ padding: "12px 10px", borderRadius: 8, textAlign: "center", ...getStatusStyle(card.status) }}>
+              <p style={{ fontSize: 10, marginBottom: 6 }}>{card.label}</p>
+              <p style={{ fontSize: 20, fontWeight: 700 }}>{cardValue(card)}</p>
+              <p style={{ marginTop: 6, fontSize: 10, lineHeight: 1.4 }}>{card.description}</p>
             </div>
           ))}
         </div>
       </div>
 
-      {/* 카테고리별 점수 */}
       <div style={{ background: "#F5F7FA", border: "1px solid #e5e7eb", borderRadius: 10, padding: 20, marginBottom: 18 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>카테고리별 점수</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>지표별 요약</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {CATEGORY_SCORES.map((item) => (
-            <div key={item.label}>
+          {report.metric_summaries.map((metric) => (
+            <div key={metric.metric}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: "#333" }}>{item.label}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#333" }}>{item.pct}%</span>
+                <span style={{ fontSize: 12, color: "#333" }}>{metric.label}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#333" }}>{metricValue(metric)}</span>
               </div>
               <div style={{ height: 8, background: "#dde8e2", borderRadius: 4 }}>
-                <div style={{ width: `${item.pct}%`, height: "100%", background: "#3D7A4F", borderRadius: 4 }} />
+                <div
+                  style={{
+                    width: metric.status === "UNAVAILABLE" ? "8%" : "100%",
+                    height: "100%",
+                    background: metric.status === "UNAVAILABLE" ? "#CBD5E1" : "#3D7A4F",
+                    borderRadius: 4,
+                  }}
+                />
               </div>
+              <p style={{ marginTop: 4, fontSize: 11, color: "#888" }}>{metric.description}</p>
             </div>
           ))}
         </div>
       </div>
 
-      {/* 차트 영역 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 18 }}>
-        {[
-          { title: "혈압 추이", unit: "단위: mmHg (수축기/이완기)\n목표: 120/80 이하" },
-          { title: "혈당 추이", unit: "단위: mg/dL\n목표: 공복혈당 100 이하" },
-        ].map((chart) => (
-          <div key={chart.title} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16 }}>
-            <h2 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{chart.title}</h2>
-            {/* TODO: recharts 등 차트 라이브러리 연결 */}
-            <div style={{ height: 180, background: "#f9fafb", border: "1.5px dashed #d1d5db", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 12 }}>
-              차트 영역
-            </div>
-            <p style={{ fontSize: 11, color: "#888", marginTop: 10, whiteSpace: "pre-line" }}>{chart.unit}</p>
-          </div>
-        ))}
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16 }}>
+          <h2 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>전주 대비 추이</h2>
+          <p style={{ fontSize: 13, color: "#555", lineHeight: 1.7 }}>{report.trend_summary.message}</p>
+        </div>
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16 }}>
+          <h2 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>챌린지 달성</h2>
+          <p style={{ fontSize: 13, color: "#555", lineHeight: 1.7 }}>{report.challenge_summary.message}</p>
+          <p style={{ fontSize: 22, fontWeight: 700, color: "#3D7A4F", marginTop: 8 }}>
+            {report.challenge_summary.completion_rate}%
+          </p>
+        </div>
       </div>
 
-      {/* 세부 항목 */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 18 }}>
-        {[
-          { title: "혈압/혈당 관리", items: [{ label: "혈압 관리", pct: 85 }, { label: "혈당 관리", pct: 72 }] },
-          { title: "운동 실천", note: `주간 운동 일수: ${report.exerciseDays}일` },
-          { title: "식단 관리", note: `식단 기록 일수: ${report.dietDays}일` },
-          { title: "챌린지 참여", note: `완료한 미션: ${report.challengeMissions}개` },
-        ].map((section) => (
-          <div key={section.title} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16 }}>
-            <h2 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{section.title}</h2>
-            {section.items?.map((item) => (
-              <div key={item.label} style={{ marginBottom: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: "#555" }}>{item.label}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700 }}>{item.pct}%</span>
-                </div>
-                <div style={{ height: 6, background: "#e8f0ec", borderRadius: 4 }}>
-                  <div style={{ width: `${item.pct}%`, height: "100%", background: "#3D7A4F", borderRadius: 4 }} />
-                </div>
-              </div>
-            ))}
-            {section.note && <p style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>{section.note}</p>}
-            {!section.items && (
-              <div style={{ height: 100, background: "#f9fafb", border: "1.5px dashed #d1d5db", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 12 }}>
-                차트 영역
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* AI 분석 요약 */}
       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 20, marginBottom: 18 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>AI 분석 요약</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>리포트 조언</h2>
         <div style={{ background: "#F9F9F9", border: "1px solid #e8f0ec", borderRadius: 6, padding: 16, fontSize: 13, color: "#333", lineHeight: 1.7, whiteSpace: "pre-line" }}>
-          {report.aiSummary}
+          {report.report_text}
         </div>
       </div>
 
-      {/* 건강 조언 */}
       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 20 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>건강 조언</h2>
-        <div style={{ marginBottom: 14 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: "#E74C3C", marginBottom: 8 }}>⚠ 주의할 점</p>
-          {report.cautions.map((c) => (
-            <p key={c} style={{ fontSize: 13, color: "#666", lineHeight: 1.6 }}>• {c}</p>
+        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>데이터 출처 요약</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
+          {[
+            ["건강 설문", report.source_summary.health_survey_count],
+            ["혈압·혈당", report.source_summary.vital_record_count],
+            ["식단", report.source_summary.meal_log_count],
+            ["운동", report.source_summary.exercise_log_count],
+            ["챌린지", report.source_summary.challenge_checkin_count],
+          ].map(([label, value]) => (
+            <div key={label} style={{ textAlign: "center", padding: 12, background: "#FAFCFA", border: "1px solid #e8f0ec", borderRadius: 8 }}>
+              <p style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>{label}</p>
+              <p style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a" }}>{value}</p>
+            </div>
           ))}
-        </div>
-        <div style={{ marginBottom: 18 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: "#27AE60", marginBottom: 8 }}>✓ 칭찬할 만한 점</p>
-          {report.praises.map((p) => (
-            <p key={p} style={{ fontSize: 13, color: "#666", lineHeight: 1.6 }}>• {p}</p>
-          ))}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <button style={{ padding: "10px", background: "#f0f7f2", border: "1px solid #dde8e2", borderRadius: 6, fontSize: 13, cursor: "pointer" }}>👍 도움이 됨</button>
-          <button style={{ padding: "10px", background: "#f0f7f2", border: "1px solid #dde8e2", borderRadius: 6, fontSize: 13, cursor: "pointer" }}>👎 도움이 안 됨</button>
         </div>
       </div>
     </div>
