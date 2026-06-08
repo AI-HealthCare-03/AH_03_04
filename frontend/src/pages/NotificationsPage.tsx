@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 
 import type { AppRoute } from "../App";
 import { getStoredAccessToken } from "../api/auth";
-import { getNotifications, markAllNotificationsRead, type NotificationItem } from "../api/notifications";
+import {
+  getNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type NotificationItem,
+} from "../api/notifications";
 import { EmptyState } from "../components/common/EmptyState";
 import { ErrorState } from "../components/common/ErrorState";
 import { LoadingState } from "../components/common/LoadingState";
@@ -58,17 +63,53 @@ const notificationMeta = {
   ADVICE:     { icon: "💬",  label: "조언",      iconBg: "#dcfce7", iconBorder: "1px solid #86efac", pillBg: "#dcfce7", pillBorder: "1px solid #86efac", pillColor: "#16a34a" },
 };
 
+const LINK_ROUTE_MAP: Record<string, AppRoute> = {
+  "/home": "/home",
+  "/notifications": "/notifications",
+  "/prediction/request": "/prediction/request",
+  "/prediction/result": "/prediction/result",
+  "/prediction/history": "/prediction/history",
+  "/prediction/feedback": "/prediction/feedback",
+  "/advices/today": "/advices/today",
+  "/advices/history": "/advices/history",
+  "/health": "/health",
+  "/food": "/food",
+  "/food/analyze": "/food/analyze",
+  "/reports": "/reports",
+  "/challenges": "/challenges",
+  "/pet": "/pet",
+  "/mypage": "/mypage",
+  "/mypage/profile": "/mypage/profile",
+};
+
+function resolveNotificationRoute(linkUrl: string | null): AppRoute {
+  if (!linkUrl) return "/home";
+  return LINK_ROUTE_MAP[linkUrl] ?? "/home";
+}
+
 function formatNotificationTime(createdAt: string) {
-  if (createdAt.includes("05-15T08")) {
-    return "5분 전";
+  const created = new Date(createdAt);
+  const diffMs = Date.now() - created.getTime();
+
+  if (Number.isNaN(created.getTime()) || diffMs < 0) {
+    return "방금 전";
   }
-  if (createdAt.includes("05-15T07")) {
-    return "2시간 전";
-  }
-  if (createdAt.includes("05-15")) {
-    return "3시간 전";
-  }
-  return "1일 전";
+
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  if (diffMinutes < 1) return "방금 전";
+  if (diffMinutes < 60) return `${diffMinutes}분 전`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}시간 전`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}일 전`;
+
+  return created.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
 }
 
 type LoadStatus = "loading" | "loaded" | "empty" | "error";
@@ -92,12 +133,44 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
       .catch(() => setStatus("error"));
   }, []);
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = async () => {
     const token = getStoredAccessToken();
     setItems((prev) => prev.map((item) => ({ ...item, is_read: true })));
     if (token) {
-      void markAllNotificationsRead(token);
+      try {
+        await markAllNotificationsRead(token);
+      } catch {
+        setStatus("error");
+      }
     }
+  };
+
+  const handleNotificationClick = async (item: NotificationItem) => {
+    const token = getStoredAccessToken();
+
+    if (!item.is_read) {
+      setItems((prev) =>
+        prev.map((notification) =>
+          notification.notification_id === item.notification_id ? { ...notification, is_read: true } : notification,
+        ),
+      );
+
+      if (token) {
+        try {
+          await markNotificationRead(item.notification_id, token);
+        } catch {
+          setItems((prev) =>
+            prev.map((notification) =>
+              notification.notification_id === item.notification_id ? { ...notification, is_read: false } : notification,
+            ),
+          );
+          setStatus("error");
+          return;
+        }
+      }
+    }
+
+    onNavigate(resolveNotificationRoute(item.link_url));
   };
 
   return (
@@ -127,7 +200,7 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
                 className={`notification-item ${item.is_read ? "" : "is-unread"}`}
                 key={item.notification_id}
                 type="button"
-                onClick={() => onNavigate((item.link_url as AppRoute | null) ?? "/home")}
+                onClick={() => void handleNotificationClick(item)}
               >
                 <span className="notification-icon" style={{ background: meta.iconBg, border: meta.iconBorder }}>{meta.icon}</span>
                 <span className="notification-content">
