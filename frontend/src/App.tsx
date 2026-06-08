@@ -24,10 +24,20 @@ import { FoodAnalyzePage } from "./pages/FoodAnalyzePage";
 import ReportListPage from "./pages/report/ReportListPage";
 import ReportDetailPage from "./pages/report/ReportDetailPage";
 import ReportExportPage from "./pages/report/ReportExportPage";
+// ── front/auth-onboarding 브랜치에서 추가
+import { SignUpPage } from "./pages/SignUpPage";
+import { TermsAgreementPage, EmailVerifyPage, PasswordResetPage, OnboardingCompletePage } from "./pages/AuthOnboardingPages";
+import { HealthSurveyPage } from "./pages/HealthSurveyPage";
 
 export type AppRoute =
   | "/"
   | "/login"
+  | "/signup"
+  | "/terms"
+  | "/email-verify"
+  | "/password-reset"
+  | "/health-survey"
+  | "/onboarding-complete"
   | "/home"
   | "/notifications"
   | "/advices/today"
@@ -48,12 +58,37 @@ export type AppRoute =
   | "/reports/detail"
   | "/reports/export";
 
-const publicRoutes = new Set<AppRoute>(["/", "/login"]);
+const publicRoutes = new Set<AppRoute>([
+  "/",
+  "/login",
+  "/signup",
+  "/terms",
+  "/email-verify",
+  "/password-reset",
+]);
+
+const onboardingRoutes = new Set<AppRoute>(["/health-survey", "/onboarding-complete"]);
+const serviceIntroRoutes = new Set<AppRoute>(["/"]);
+const authRoutes = new Set<AppRoute>([
+  "/login",
+  "/signup",
+  "/terms",
+  "/email-verify",
+  "/password-reset",
+  "/health-survey",
+  "/onboarding-complete",
+]);
 
 function normalizePath(pathname: string): AppRoute {
   const knownRoutes: AppRoute[] = [
     "/",
     "/login",
+    "/signup",
+    "/terms",
+    "/email-verify",
+    "/password-reset",
+    "/health-survey",
+    "/onboarding-complete",
     "/home",
     "/notifications",
     "/advices/today",
@@ -81,6 +116,10 @@ function normalizePath(pathname: string): AppRoute {
 export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => normalizePath(window.location.pathname));
 
+  // TODO: API 연결 시 sessionStorage 토큰 체크로 교체 (REQ-AUTH-002, NFR-SEC-001)
+  // const [isLoggedIn, setIsLoggedIn] = useState(() => !!sessionStorage.getItem("access_token"));
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
   useEffect(() => {
     const onPopState = () => setRoute(normalizePath(window.location.pathname));
     window.addEventListener("popstate", onPopState);
@@ -92,12 +131,20 @@ export default function App() {
     setRoute(nextRoute);
   };
 
+  const effectiveRoute = useMemo(() => {
+    if (!isLoggedIn && !publicRoutes.has(route) && !onboardingRoutes.has(route)) {
+      return "/login" as AppRoute;
+    }
+    return route;
+  }, [route, isLoggedIn]);
+
   const page = useMemo(() => {
-    switch (route) {
+    switch (effectiveRoute) {
+      // ── 기존 라우트 유지 ──
       case "/":
         return <LandingPage onNavigate={navigate} />;
       case "/login":
-        return <LoginPage onLogin={() => navigate("/home")} />;
+        return <LoginPage onLogin={() => { setIsLoggedIn(true); navigate("/home"); }} onNavigate={navigate} />;
       case "/home":
         return <HomePage onNavigate={navigate} />;
       case "/notifications":
@@ -135,17 +182,36 @@ export default function App() {
         return <PlaceholderPage title="챌린지 관리" description="챌린지 목록, 참여, 체크인 화면을 연결할 영역입니다." />;
       case "/pet":
         return <PlaceholderPage title="마이펫" description="펫 현황, 보상 과제, 도감 화면을 연결할 영역입니다." />;
+
+      // ── front/auth-onboarding 브랜치에서 추가 ──
+      case "/signup":
+        return <SignUpPage onNavigate={navigate} />;
+      case "/terms":
+        return <TermsAgreementPage onNavigate={navigate} />;
+      case "/email-verify":
+        return <EmailVerifyPage onNavigate={navigate} />;
+      case "/password-reset":
+        return <PasswordResetPage onNavigate={navigate} />;
+      case "/health-survey":
+        return <HealthSurveyPage onNavigate={navigate} />;
+      case "/onboarding-complete":
+        return <OnboardingCompletePage onNavigate={navigate} />;
+
       default:
         return <HomePage />;
     }
-  }, [route]);
+  }, [effectiveRoute]);
 
-  if (publicRoutes.has(route)) {
+  if (serviceIntroRoutes.has(effectiveRoute)) {
     return <PublicLayout onNavigate={navigate}>{page}</PublicLayout>;
   }
 
+  if (authRoutes.has(effectiveRoute)) {
+    return page;
+  }
+
   return (
-    <AppLayout currentRoute={route} onNavigate={navigate}>
+    <AppLayout currentRoute={effectiveRoute} onNavigate={navigate}>
       {page}
     </AppLayout>
   );
