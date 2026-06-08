@@ -1,6 +1,8 @@
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 from app.dtos.predictions import MetricAssessmentItemResponse, MetricAssessmentResponse
 from app.models.predictions import PredictionStatus
 from app.models.users import Gender
@@ -99,3 +101,56 @@ def test_health_score_penalizes_missing_prediction_and_metric_inputs():
     assert score.status == "CAUTION"
     assert "AI 예측 결과 없음" in score.calculation_basis
     assert "비만 수치 위험" in score.calculation_basis
+
+
+@pytest.mark.asyncio
+async def test_prediction_snapshot_record_loader_rejects_unowned_health_record(monkeypatch):
+    class MissingRecord:
+        @staticmethod
+        async def get_or_none(**kwargs):
+            return None
+
+    class ExistingRecord:
+        @staticmethod
+        async def get_or_none(**kwargs):
+            return SimpleNamespace(id=kwargs["id"], user_id=kwargs["user_id"])
+
+    monkeypatch.setattr("app.services.predictions.ChronicHealthInput", MissingRecord)
+    monkeypatch.setattr("app.services.predictions.LifestyleInput", ExistingRecord)
+
+    snapshot = SimpleNamespace(
+        chronic_health_input_id=10,
+        lifestyle_input_id=20,
+        lipid_obesity_record_id=None,
+        renal_record_id=None,
+    )
+
+    with pytest.raises(ValueError, match="예측 입력 소유자 검증"):
+        await PredictionService._load_owned_snapshot_records(snapshot, user_id=1)
+
+
+@pytest.mark.asyncio
+async def test_prediction_snapshot_record_loader_rejects_unowned_optional_records(monkeypatch):
+    class ExistingRecord:
+        @staticmethod
+        async def get_or_none(**kwargs):
+            return SimpleNamespace(id=kwargs["id"], user_id=kwargs["user_id"])
+
+    class MissingRecord:
+        @staticmethod
+        async def get_or_none(**kwargs):
+            return None
+
+    monkeypatch.setattr("app.services.predictions.ChronicHealthInput", ExistingRecord)
+    monkeypatch.setattr("app.services.predictions.LifestyleInput", ExistingRecord)
+    monkeypatch.setattr("app.services.predictions.LipidObesityRecord", MissingRecord)
+
+    snapshot = SimpleNamespace(
+        chronic_health_input_id=10,
+        lifestyle_input_id=20,
+        lipid_obesity_record_id=30,
+        renal_record_id=None,
+    )
+
+    with pytest.raises(ValueError, match="예측 입력 소유자 검증"):
+        await PredictionService._load_owned_snapshot_records(snapshot, user_id=1)

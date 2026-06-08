@@ -1239,7 +1239,9 @@ class PredictionService:
 
         lipid = await LipidObesityRecord.filter(user_id=user.id).order_by("-record_date", "-created_at").first()
         renal = await RenalRecord.filter(user_id=user.id).order_by("-record_date", "-created_at").first()
-        survey_health = await ChronicHealthInput.get(id=survey_snapshot.chronic_health_input_id)
+        survey_health = await ChronicHealthInput.get_or_none(id=survey_snapshot.chronic_health_input_id, user_id=user.id)
+        if survey_health is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="건강 설문 입력을 찾을 수 없습니다.")
         missing_fields = self._missing_optional_measurements(survey_health, lipid, renal)
 
         snapshot = await PredictionInputSnapshot.create(
@@ -1278,7 +1280,10 @@ class PredictionService:
         await task.save(update_fields=["status", "progress_percent", "current_step", "started_at"])
 
         try:
-            raw_input, snapshot = await self._build_model_input(task.input_snapshot_id)
+            raw_input, snapshot, health, lifestyle, lipid, renal = await self._build_model_input(
+                task.input_snapshot_id,
+                user_id,
+            )
             disease_predictions = await asyncio.to_thread(self._run_models, raw_input)
             completeness = self._input_completeness(snapshot.missing_fields)
             at_risk = [disease for disease, values in disease_predictions.items() if values["is_at_risk"]]
@@ -1291,14 +1296,6 @@ class PredictionService:
                 inference_ms=int((time.perf_counter() - started) * 1000),
                 disclaimer=DISCLAIMER,
             )
-            health = await ChronicHealthInput.get(id=snapshot.chronic_health_input_id)
-            lifestyle = await LifestyleInput.get(id=snapshot.lifestyle_input_id)
-            lipid = (
-                await LipidObesityRecord.get(id=snapshot.lipid_obesity_record_id)
-                if snapshot.lipid_obesity_record_id is not None
-                else None
-            )
-            renal = await RenalRecord.get(id=snapshot.renal_record_id) if snapshot.renal_record_id is not None else None
             for disease, values in disease_predictions.items():
                 values["risk_factors"] = self._risk_factors(disease, health, lifestyle, lipid, renal)
                 await PredictionResultItem.create(result=result, disease_code=disease, **values)
@@ -1485,16 +1482,20 @@ class PredictionService:
             "message": "일부 검사 수치가 입력되지 않아 일반 기준값을 사용했습니다. 수치를 추가하면 더 개인화된 결과를 확인할 수 있습니다.",
         }
 
-    async def _build_model_input(self, snapshot_id: int) -> tuple[dict[str, Any], PredictionInputSnapshot]:
+    async def _build_model_input(
+        self,
+        snapshot_id: int,
+        user_id: int,
+    ) -> tuple[
+        dict[str, Any],
+        PredictionInputSnapshot,
+        ChronicHealthInput,
+        LifestyleInput,
+        LipidObesityRecord | None,
+        RenalRecord | None,
+    ]:
         snapshot = await PredictionInputSnapshot.get(id=snapshot_id)
-        health = await ChronicHealthInput.get(id=snapshot.chronic_health_input_id)
-        lifestyle = await LifestyleInput.get(id=snapshot.lifestyle_input_id)
-        lipid = (
-            await LipidObesityRecord.get(id=snapshot.lipid_obesity_record_id)
-            if snapshot.lipid_obesity_record_id is not None
-            else None
-        )
-        renal = await RenalRecord.get(id=snapshot.renal_record_id) if snapshot.renal_record_id is not None else None
+        health, lifestyle, lipid, renal = await self._load_owned_snapshot_records(snapshot, user_id)
         diagnoses = set(health.diagnosed_diseases)
         medications = set(health.medications)
         raw: dict[str, Any] = {
@@ -1543,7 +1544,32 @@ class PredictionService:
                     "urine_protein": int(renal.urine_protein_pos) if renal.urine_protein_pos is not None else None,
                 }
             )
-        return {key: value for key, value in raw.items() if value is not None}, snapshot
+        return {key: value for key, value in raw.items() if value is not None}, snapshot, health, lifestyle, lipid, renal
+
+    @staticmethod
+    async def _load_owned_snapshot_records(
+        snapshot: PredictionInputSnapshot,
+        user_id: int,
+    ) -> tuple[ChronicHealthInput, LifestyleInput, LipidObesityRecord | None, RenalRecord | None]:
+        health = await ChronicHealthInput.get_or_none(id=snapshot.chronic_health_input_id, user_id=user_id)
+        lifestyle = await LifestyleInput.get_or_none(id=snapshot.lifestyle_input_id, user_id=user_id)
+        lipid = (
+            await LipidObesityRecord.get_or_none(id=snapshot.lipid_obesity_record_id, user_id=user_id)
+            if snapshot.lipid_obesity_record_id is not None
+            else None
+        )
+        renal = (
+            await RenalRecord.get_or_none(id=snapshot.renal_record_id, user_id=user_id)
+            if snapshot.renal_record_id is not None
+            else None
+        )
+        if health is None or lifestyle is None:
+            raise ValueError("예측 입력 소유자 검증에 실패했습니다.")
+        if snapshot.lipid_obesity_record_id is not None and lipid is None:
+            raise ValueError("예측 입력 소유자 검증에 실패했습니다.")
+        if snapshot.renal_record_id is not None and renal is None:
+            raise ValueError("예측 입력 소유자 검증에 실패했습니다.")
+        return health, lifestyle, lipid, renal
 
     @staticmethod
     def _to_model_lifestyle_input(lifestyle: LifestyleInput) -> dict[str, Any]:
