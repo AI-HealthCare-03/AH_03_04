@@ -1,203 +1,147 @@
 import { useEffect, useState } from "react";
 
-import type { AppRoute } from "../../App";  
+import type { AppRoute } from "../../App";
 import { getStoredAccessToken } from "../../api/auth";
-import { 
-  getHealthGoals,
-  updateHealthGoals,
-  type ChronicDiseaseGoal,
-  type HealthGoals,
-  type LifestyleGoal,
-} from "../../api/goal";
+import { getHealthGoals, type HealthGoals } from "../../api/goal";
+import { getScoreHistory, type ScoreHistory } from "../../api/stats";
 import { ErrorState } from "../../components/common/ErrorState";
 import { LoadingState } from "../../components/common/LoadingState";
 
-const fallbackHealthGoals: HealthGoals = {
+type CurrentValues = {
+  systolic_bp: number | null;
+  diastolic_bp: number | null;
+  fasting_glucose: number | null;
+  postprandial_glucose: number | null;
+  ldl_cholesterol: number | null;
+  hdl_cholesterol: number | null;
+  triglycerides: number | null;
+  weight_kg: number | null;
+  bmi: number | null;
+  egfr: number | null;
+  steps: number | null;
+  exercise_minutes: number | null;
+  water_ml: number | null;
+  sleep_hours: number | null;
+};
+
+const fallbackGoals: HealthGoals = {
   chronic_disease_goal: {
-    target_systolic_bp: 130,
+    target_systolic_bp: 120,
     target_diastolic_bp: 80,
     target_fasting_glucose: 100,
     target_postprandial_glucose: 140,
-    target_hba1c: 6.5,
+    target_hba1c: null,
     target_ldl_cholesterol: 100,
     target_hdl_cholesterol: 60,
     target_triglycerides: 150,
-    target_bmi: 23.0,
-    target_weight_kg: null,
-    target_egfr: null,
+    target_bmi: 22,
+    target_weight_kg: 68,
+    target_egfr: 60,
     updated_at: "2026-06-05T08:00:00",
   },
   lifestyle_goal: {
     target_steps: 10000,
     target_water_ml: 2000,
-    target_exercise_minutes: 30,
-    target_sleep_hours: 7.0,
+    target_exercise_minutes: 45,
+    target_sleep_hours: 7.5,
     target_diet_score: null,
     updated_at: "2026-06-05T08:00:00",
   },
 };
 
-type CdgKey = keyof Omit<ChronicDiseaseGoal, "updated_at">;
-type LgKey = keyof Omit<LifestyleGoal, "updated_at">;
+const fallbackCurrent: CurrentValues = {
+  systolic_bp: 125,
+  diastolic_bp: 82,
+  fasting_glucose: 98,
+  postprandial_glucose: null,
+  ldl_cholesterol: 112,
+  hdl_cholesterol: 52,
+  triglycerides: null,
+  weight_kg: 72.5,
+  bmi: 23.7,
+  egfr: null,
+  steps: 8423,
+  exercise_minutes: 30,
+  water_ml: 1800,
+  sleep_hours: 6.5,
+};
 
-type MetaItem<K extends string> = {
-  key: K;
+const fallbackHistory: ScoreHistory = {
+  period: "30D",
+  points: [],
+};
+
+function calcProgress(current: number | null, target: number | null, higherIsBetter: boolean): number {
+  if (current === null || target === null || target === 0) return 0;
+  if (higherIsBetter) {
+    return Math.min(100, Math.round((current / target) * 100));
+  }
+  if (current <= target) return 100;
+  return Math.max(0, Math.round((target / current) * 100));
+}
+
+type GoalRowProps = {
   label: string;
-  unit: string;
-  step: string;
+  currentText: string;
+  targetText: string;
+  progress: number;
+  isDefault?: boolean;
 };
 
-const CDG_GROUPS: { group: string; items: MetaItem<CdgKey>[] }[] = [
-  {
-    group: "혈압",
-    items: [
-      { key: "target_systolic_bp", label: "수축기 혈압", unit: "mmHg", step: "1" },
-      { key: "target_diastolic_bp", label: "이완기 혈압", unit: "mmHg", step: "1" },
-    ],
-  },
-  {
-    group: "혈당",
-    items: [
-      { key: "target_fasting_glucose", label: "공복 혈당", unit: "mg/dL", step: "1" },
-      { key: "target_postprandial_glucose", label: "식후 혈당", unit: "mg/dL", step: "1" },
-      { key: "target_hba1c", label: "당화혈색소 (HbA1c)", unit: "%", step: "0.1" },
-    ],
-  },
-  {
-    group: "지질",
-    items: [
-      { key: "target_ldl_cholesterol", label: "LDL 콜레스테롤", unit: "mg/dL", step: "1" },
-      { key: "target_hdl_cholesterol", label: "HDL 콜레스테롤", unit: "mg/dL", step: "1" },
-      { key: "target_triglycerides", label: "중성지방", unit: "mg/dL", step: "1" },
-    ],
-  },
-  {
-    group: "신체조성",
-    items: [
-      { key: "target_bmi", label: "체질량지수 (BMI)", unit: "kg/m²", step: "0.1" },
-      { key: "target_weight_kg", label: "체중", unit: "kg", step: "0.1" },
-    ],
-  },
-  {
-    group: "신장",
-    items: [{ key: "target_egfr", label: "사구체여과율 (eGFR)", unit: "mL/min/1.73m²", step: "0.1" }],
-  },
-];
-
-const LG_ITEMS: MetaItem<LgKey>[] = [
-  { key: "target_steps", label: "일일 걸음 수", unit: "보/일", step: "100" },
-  { key: "target_water_ml", label: "수분 섭취", unit: "mL/일", step: "100" },
-  { key: "target_exercise_minutes", label: "운동 시간", unit: "분/일", step: "5" },
-  { key: "target_sleep_hours", label: "수면 시간", unit: "시간", step: "0.5" },
-  { key: "target_diet_score", label: "식단 점수", unit: "점", step: "0.1" },
-];
-
-type DraftValues = {
-  cdg: Partial<Record<CdgKey, string>>;
-  lg: Partial<Record<LgKey, string>>;
-};
-
-function numToString(v: number | null): string {
-  return v === null ? "" : String(v);
-}
-
-function stringToNum(s: string): number | null {
-  if (s === "" || s === null) return null;
-  const n = Number(s);
-  return Number.isNaN(n) ? null : n;
-}
-
-function initDraft(goals: HealthGoals): DraftValues {
-  const cdg: Partial<Record<CdgKey, string>> = {};
-  const lg: Partial<Record<LgKey, string>> = {};
-
-  (Object.keys(goals.chronic_disease_goal) as (CdgKey | "updated_at")[]).forEach((k) => {
-    if (k !== "updated_at") {
-      cdg[k as CdgKey] = numToString(goals.chronic_disease_goal[k as CdgKey]);
-    }
-  });
-
-  (Object.keys(goals.lifestyle_goal) as (LgKey | "updated_at")[]).forEach((k) => {
-    if (k !== "updated_at") {
-      lg[k as LgKey] = numToString(goals.lifestyle_goal[k as LgKey]);
-    }
-  });
-
-  return { cdg, lg };
-}
-
-function formatUpdatedAt(iso: string) {
-  const d = new Date(iso);
-  return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} 업데이트`;
+function GoalRow({ label, currentText, targetText, progress, isDefault }: GoalRowProps) {
+  return (
+    <div className="goal-progress-row">
+      <div className="goal-progress-left">
+        <span className="goal-progress-label">
+          {label}
+          {isDefault && <span className="goal-default-badge">기본값 사용 중</span>}
+        </span>
+        <span className="goal-progress-meta">
+          현재: {currentText}&nbsp;&nbsp;목표: {targetText}
+        </span>
+      </div>
+      <div className="goal-progress-bar-wrap">
+        <div
+          className="goal-progress-bar"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <span className="goal-progress-pct">{progress}%</span>
+    </div>
+  );
 }
 
 type GoalPageProps = {
   onNavigate?: (route: AppRoute) => void;
 };
 
-export function GoalPage({ onNavigate: _onNavigate }: GoalPageProps) {
-  const [goals, setGoals] = useState<HealthGoals>(fallbackHealthGoals);
+export function GoalPage({ onNavigate }: GoalPageProps) {
+  const [goals, setGoals] = useState<HealthGoals>(fallbackGoals);
+  const [history, setHistory] = useState<ScoreHistory>(fallbackHistory);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [hasApiError, setHasApiError] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [draft, setDraft] = useState<DraftValues>({ cdg: {}, lg: {} });
+  const current = fallbackCurrent;
 
   useEffect(() => {
     const token = getStoredAccessToken();
     if (!token) return;
 
     setIsLoading(true);
-    getHealthGoals(token)
-      .then((res) => {
-        setGoals(res.data);
+    Promise.all([getHealthGoals(token), getScoreHistory("30D", token)])
+      .then(([goalsRes, historyRes]) => {
+        setGoals(goalsRes.data);
+        setHistory(historyRes.data);
         setHasApiError(false);
       })
       .catch(() => setHasApiError(true))
       .finally(() => setIsLoading(false));
   }, []);
 
-  function handleEditStart() {
-    setDraft(initDraft(goals));
-    setIsEditing(true);
-  }
+  if (isLoading) return <LoadingState message="건강 목표를 불러오는 중입니다." />;
 
-  function handleCancel() {
-    setIsEditing(false);
-    setDraft({ cdg: {}, lg: {} });
-  }
-
-  async function handleSave() {
-    const token = getStoredAccessToken();
-    const cdgPatch: Partial<Omit<typeof goals.chronic_disease_goal, "updated_at">> = {};
-    const lgPatch: Partial<Omit<typeof goals.lifestyle_goal, "updated_at">> = {};
-
-    (Object.keys(draft.cdg) as CdgKey[]).forEach((k) => {
-      (cdgPatch as Record<string, number | null>)[k] = stringToNum(draft.cdg[k] ?? "");
-    });
-    (Object.keys(draft.lg) as LgKey[]).forEach((k) => {
-      (lgPatch as Record<string, number | null>)[k] = stringToNum(draft.lg[k] ?? "");
-    });
-
-    setIsSaving(true);
-    try {
-      const res = await updateHealthGoals(
-        { chronic_disease_goal: cdgPatch, lifestyle_goal: lgPatch },
-        token,
-      );
-      setGoals(res.data);
-      setIsEditing(false);
-      setDraft({ cdg: {}, lg: {} });
-    } catch {
-      /* 저장 실패 시 편집 상태 유지 */
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  if (isLoading) {
-    return <LoadingState message="건강 목표를 불러오는 중입니다." />;
-  }
+  const cdg = goals.chronic_disease_goal;
+  const lg = goals.lifestyle_goal;
+  const maxScore = Math.max(...history.points.map((p) => p.total_score), 1);
 
   return (
     <div className="goal-page page-stack">
@@ -207,30 +151,13 @@ export function GoalPage({ onNavigate: _onNavigate }: GoalPageProps) {
           <h1>건강 목표</h1>
         </div>
         <div className="button-row">
-          {isEditing ? (
-            <>
-              <button
-                type="button"
-                className="wide-subtle-button goal-cancel-btn"
-                onClick={handleCancel}
-                disabled={isSaving}
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                className="green-button"
-                onClick={handleSave}
-                disabled={isSaving}
-              >
-                {isSaving ? "저장 중..." : "저장"}
-              </button>
-            </>
-          ) : (
-            <button type="button" className="green-button" onClick={handleEditStart}>
-              목표 수정
-            </button>
-          )}
+          <button
+            type="button"
+            className="green-button"
+            onClick={() => onNavigate?.("/health/goal/edit")}
+          >
+            목표 수정
+          </button>
         </div>
       </section>
 
@@ -241,95 +168,144 @@ export function GoalPage({ onNavigate: _onNavigate }: GoalPageProps) {
         />
       )}
 
-      {/* 만성질환 목표 */}
+      {/* 만성질환 수치 목표 */}
       <section className="dashboard-card goal-section">
         <div className="goal-section-header">
-          <h2>만성질환 목표</h2>
-          <small className="goal-updated-at">
-            {formatUpdatedAt(goals.chronic_disease_goal.updated_at)}
-          </small>
+          <h2>만성질환 수치 목표</h2>
         </div>
+        <p className="goal-section-note">
+          * 현재 풍선이 없는 경우 최근 일부 항목만 표시됩니다 (예: eGFR은 만성신장질환 관리 시 적용)
+        </p>
 
-        {CDG_GROUPS.map(({ group, items }) => (
-          <div key={group} className="goal-group">
-            <h3 className="goal-group-label">{group}</h3>
-            <div className="goal-metric-grid">
-              {items.map(({ key, label, unit, step }) => {
-                const val = goals.chronic_disease_goal[key];
-                return (
-                  <div key={key} className="goal-metric-card">
-                    <span className="field-label">{label}</span>
-                    {isEditing ? (
-                      <div className="goal-edit-field">
-                        <input
-                          type="number"
-                          step={step}
-                          className="goal-edit-input"
-                          value={draft.cdg[key] ?? ""}
-                          placeholder="미설정"
-                          onChange={(e) =>
-                            setDraft((prev) => ({
-                              ...prev,
-                              cdg: { ...prev.cdg, [key]: e.target.value },
-                            }))
-                          }
-                        />
-                        <span className="goal-edit-unit">{unit}</span>
-                      </div>
-                    ) : (
-                      <strong className={val === null ? "goal-val-empty" : "goal-val"}>
-                        {val === null ? "미설정" : `${val} ${unit}`}
-                      </strong>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+        <GoalRow
+          label="혈압 (수축기/이완기)"
+          currentText={
+            current.systolic_bp != null
+              ? `${current.systolic_bp}/${current.diastolic_bp}mmHg`
+              : "—mmHg"
+          }
+          targetText={
+            cdg.target_systolic_bp != null
+              ? `${cdg.target_systolic_bp}/${cdg.target_diastolic_bp}mmHg`
+              : "미설정"
+          }
+          progress={calcProgress(current.systolic_bp, cdg.target_systolic_bp, false)}
+        />
+        <GoalRow
+          label="공복혈당"
+          currentText={current.fasting_glucose != null ? `${current.fasting_glucose}mg/dL` : "—mg/dL"}
+          targetText={cdg.target_fasting_glucose != null ? `<${cdg.target_fasting_glucose}mg/dL` : "미설정"}
+          progress={calcProgress(current.fasting_glucose, cdg.target_fasting_glucose, false)}
+        />
+        <GoalRow
+          label="식후혈당"
+          currentText={current.postprandial_glucose != null ? `${current.postprandial_glucose}mg/dL` : "—mg/dL"}
+          targetText={cdg.target_postprandial_glucose != null ? `<${cdg.target_postprandial_glucose}mg/dL` : "미설정"}
+          progress={calcProgress(current.postprandial_glucose, cdg.target_postprandial_glucose, false)}
+          isDefault={current.postprandial_glucose === null}
+        />
+        <GoalRow
+          label="LDL 콜레스테롤"
+          currentText={current.ldl_cholesterol != null ? `${current.ldl_cholesterol}mg/dL` : "—mg/dL"}
+          targetText={cdg.target_ldl_cholesterol != null ? `<${cdg.target_ldl_cholesterol}mg/dL` : "미설정"}
+          progress={calcProgress(current.ldl_cholesterol, cdg.target_ldl_cholesterol, false)}
+        />
+        <GoalRow
+          label="HDL 콜레스테롤"
+          currentText={current.hdl_cholesterol != null ? `${current.hdl_cholesterol}mg/dL` : "—mg/dL"}
+          targetText={cdg.target_hdl_cholesterol != null ? `≥${cdg.target_hdl_cholesterol}mg/dL` : "미설정"}
+          progress={calcProgress(current.hdl_cholesterol, cdg.target_hdl_cholesterol, true)}
+        />
+        <GoalRow
+          label="중성지방"
+          currentText={current.triglycerides != null ? `${current.triglycerides}mg/dL` : "—mg/dL"}
+          targetText={cdg.target_triglycerides != null ? `<${cdg.target_triglycerides}mg/dL` : "미설정"}
+          progress={calcProgress(current.triglycerides, cdg.target_triglycerides, false)}
+          isDefault={current.triglycerides === null}
+        />
+        <GoalRow
+          label="체중 또는 BMI"
+          currentText={
+            current.weight_kg != null
+              ? `${current.weight_kg}/${current.bmi}kg`
+              : "—kg"
+          }
+          targetText={
+            cdg.target_weight_kg != null
+              ? `${cdg.target_weight_kg}/${cdg.target_bmi}kg`
+              : cdg.target_bmi != null
+                ? `BMI ${cdg.target_bmi}`
+                : "미설정"
+          }
+          progress={calcProgress(current.bmi, cdg.target_bmi, false)}
+        />
+        <GoalRow
+          label="eGFR"
+          currentText={current.egfr != null ? `${current.egfr}mL/min` : "—mL/min"}
+          targetText={cdg.target_egfr != null ? `≥${cdg.target_egfr}mL/min` : "미설정"}
+          progress={calcProgress(current.egfr, cdg.target_egfr, true)}
+          isDefault={current.egfr === null}
+        />
       </section>
 
       {/* 생활습관 목표 */}
       <section className="dashboard-card goal-section">
         <div className="goal-section-header">
           <h2>생활습관 목표</h2>
-          <small className="goal-updated-at">
-            {formatUpdatedAt(goals.lifestyle_goal.updated_at)}
-          </small>
         </div>
 
-        <div className="goal-metric-grid goal-metric-grid--wide">
-          {LG_ITEMS.map(({ key, label, unit, step }) => {
-            const val = goals.lifestyle_goal[key];
-            return (
-              <div key={key} className="goal-metric-card">
-                <span className="field-label">{label}</span>
-                {isEditing ? (
-                  <div className="goal-edit-field">
-                    <input
-                      type="number"
-                      step={step}
-                      className="goal-edit-input"
-                      value={draft.lg[key] ?? ""}
-                      placeholder="미설정"
-                      onChange={(e) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          lg: { ...prev.lg, [key]: e.target.value },
-                        }))
-                      }
-                    />
-                    <span className="goal-edit-unit">{unit}</span>
-                  </div>
-                ) : (
-                  <strong className={val === null ? "goal-val-empty" : "goal-val"}>
-                    {val === null ? "미설정" : `${val} ${unit}`}
-                  </strong>
-                )}
-              </div>
-            );
-          })}
+        <GoalRow
+          label="걸음수"
+          currentText={current.steps != null ? `${current.steps.toLocaleString()}보/일` : "—보/일"}
+          targetText={lg.target_steps != null ? `${lg.target_steps.toLocaleString()}보/일` : "미설정"}
+          progress={calcProgress(current.steps, lg.target_steps, true)}
+        />
+        <GoalRow
+          label="운동 시간"
+          currentText={current.exercise_minutes != null ? `${current.exercise_minutes}분/일` : "—분/일"}
+          targetText={lg.target_exercise_minutes != null ? `${lg.target_exercise_minutes}분/일` : "미설정"}
+          progress={calcProgress(current.exercise_minutes, lg.target_exercise_minutes, true)}
+        />
+        <GoalRow
+          label="수분 섭취"
+          currentText={current.water_ml != null ? `${current.water_ml.toLocaleString()}ml/일` : "—ml/일"}
+          targetText={lg.target_water_ml != null ? `${lg.target_water_ml.toLocaleString()}ml/일` : "미설정"}
+          progress={calcProgress(current.water_ml, lg.target_water_ml, true)}
+        />
+        <GoalRow
+          label="수면 시간"
+          currentText={current.sleep_hours != null ? `${current.sleep_hours}시간` : "—시간"}
+          targetText={lg.target_sleep_hours != null ? `${lg.target_sleep_hours}시간` : "미설정"}
+          progress={calcProgress(current.sleep_hours, lg.target_sleep_hours, true)}
+        />
+      </section>
+
+      {/* 최근 30일 건강 점수 추이 */}
+      <section className="dashboard-card goal-section">
+        <div className="goal-section-header">
+          <h2>최근 30일 건강 점수 추이</h2>
         </div>
+        <p className="goal-section-note">* /dashboard/statistics API 기간 30일 평균 점수 추이</p>
+        {history.points.length === 0 ? (
+          <div className="goal-chart-placeholder">
+            <span>30일 건강 점수 추이 차트 (110점 만점)</span>
+          </div>
+        ) : (
+          <div className="goal-score-chart">
+            {history.points.map((p) => {
+              const h = Math.round((p.total_score / maxScore) * 100);
+              const parts = p.date.split("-");
+              return (
+                <div key={p.date} className="goal-score-col">
+                  <div className="goal-score-bar-wrap">
+                    <div className="goal-score-bar" style={{ height: `${h}%` }} />
+                  </div>
+                  <span className="goal-score-date">{parts[1]}/{parts[2]}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
     </div>
   );

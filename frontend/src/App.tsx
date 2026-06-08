@@ -15,7 +15,15 @@ import { PredictionHistoryPage } from "./pages/PredictionHistoryPage";
 import { PredictionProgressPage } from "./pages/PredictionProgressPage";
 import { PredictionRequestPage } from "./pages/PredictionRequestPage";
 import { PredictionResultPage } from "./pages/PredictionResultPage";
+import { ActivityPage } from "./pages/health/ActivityPage";
+import { ExercisePage } from "./pages/health/ExercisePage";
+import { GoalEditPage } from "./pages/health/GoalEditPage";
 import { GoalPage } from "./pages/health/GoalPage";
+import { HealthHubPage } from "./pages/health/HealthHubPage";
+import { HealthProfilePage } from "./pages/health/HealthProfilePage";
+import { VitalsDetailPage } from "./pages/health/VitalsDetailPage";
+import { VitalsInputPage } from "./pages/health/VitalsInputPage";
+import { VitalsListPage } from "./pages/health/VitalsListPage";
 
 export type AppRoute =
   | "/"
@@ -33,6 +41,13 @@ export type AppRoute =
   | "/mypage/profile"
   | "/health"
   | "/health/goal"
+  | "/health/goal/edit"
+  | "/health/profile"
+  | "/health/vitals"
+  | "/health/vitals/detail"
+  | "/health/vitals/input"
+  | "/health/exercise"
+  | "/health/activity"
   | "/food"
   | "/reports"
   | "/challenges"
@@ -57,6 +72,13 @@ function normalizePath(pathname: string): AppRoute {
     "/mypage/profile",
     "/health",
     "/health/goal",
+    "/health/goal/edit",
+    "/health/profile",
+    "/health/vitals",
+    "/health/vitals/detail",
+    "/health/vitals/input",
+    "/health/exercise",
+    "/health/activity",
     "/food",
     "/reports",
     "/challenges",
@@ -108,9 +130,23 @@ export default function App() {
       case "/mypage/profile":
         return <MyProfilePage />;
       case "/health":
-        return <PlaceholderPage title="건강 관리" description="건강 기록 입력/조회 화면을 연결할 영역입니다." />;
+        return <HealthHubPage onNavigate={navigate} />;
       case "/health/goal":
         return <GoalPage onNavigate={navigate} />;
+      case "/health/goal/edit":
+        return <GoalEditPage onNavigate={navigate} />;
+      case "/health/profile":
+        return <HealthProfilePage onNavigate={navigate} />;
+      case "/health/vitals":
+        return <VitalsListPage onNavigate={navigate} />;
+      case "/health/vitals/detail":
+        return <VitalsDetailPage onNavigate={navigate} />;
+      case "/health/vitals/input":
+        return <VitalsInputPage onNavigate={navigate} />;
+      case "/health/exercise":
+        return <ExercisePage onNavigate={navigate} />;
+      case "/health/activity":
+        return <ActivityPage onNavigate={navigate} />;
       case "/food":
         return <PlaceholderPage title="식단 관리" description="식단 입력, 분석 결과, 기록 목록 화면을 연결할 영역입니다." />;
       case "/reports":
