@@ -1239,7 +1239,9 @@ class PredictionService:
 
         lipid = await LipidObesityRecord.filter(user_id=user.id).order_by("-record_date", "-created_at").first()
         renal = await RenalRecord.filter(user_id=user.id).order_by("-record_date", "-created_at").first()
-        survey_health = await ChronicHealthInput.get_or_none(id=survey_snapshot.chronic_health_input_id, user_id=user.id)
+        survey_health = await ChronicHealthInput.get_or_none(
+            id=survey_snapshot.chronic_health_input_id, user_id=user.id
+        )
         if survey_health is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="건강 설문 입력을 찾을 수 없습니다.")
         missing_fields = self._missing_optional_measurements(survey_health, lipid, renal)
@@ -1544,7 +1546,14 @@ class PredictionService:
                     "urine_protein": int(renal.urine_protein_pos) if renal.urine_protein_pos is not None else None,
                 }
             )
-        return {key: value for key, value in raw.items() if value is not None}, snapshot, health, lifestyle, lipid, renal
+        return (
+            {key: value for key, value in raw.items() if value is not None},
+            snapshot,
+            health,
+            lifestyle,
+            lipid,
+            renal,
+        )
 
     @staticmethod
     async def _load_owned_snapshot_records(
