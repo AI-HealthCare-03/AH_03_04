@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import type { AppRoute } from "../App";
+import { getStoredAccessToken } from "../api/auth";
+import { getCurrentUser, updateCurrentUser } from "../api/users";
 
 interface EditProfilePageProps {
   onNavigate: (route: AppRoute) => void;
@@ -13,28 +15,49 @@ const DISEASE_OPTIONS = [
   { code: "CKD", label: "만성신장질환" },
 ];
 
-// 더미 데이터 — API 연결 시 교체 (GET /api/v1/users/me)
-const INITIAL = {
-  name: "홍길동",
-  email: "hong@example.com",
-  birth_date: "1985-03-15",
-  gender: "M",
-  phone_number: "010-1234-5678",
-  height: 175,
-  weight: 72,
-  managed_diseases: ["HYPERTENSION", "DIABETES"],
-};
-
 export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
-  const [name, setName] = useState(INITIAL.name);
-  const [phone, setPhone] = useState(INITIAL.phone_number);
-  const [height, setHeight] = useState(String(INITIAL.height));
-  const [weight, setWeight] = useState(String(INITIAL.weight));
-  const [diseases, setDiseases] = useState<string[]>(INITIAL.managed_diseases);
+  const [email, setEmail] = useState("");
+  const [birthday, setBirthday] = useState("");
+  const [gender, setGender] = useState<"MALE" | "FEMALE">("MALE");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [height, setHeight] = useState("");
+  const [weight, setWeight] = useState("");
+  const [diseases, setDiseases] = useState<string[]>([]);
   const [bmi, setBmi] = useState<number | null>(null);
   const [showDiseaseWarning, setShowDiseaseWarning] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadUser() {
+      try {
+        const user = await getCurrentUser(getStoredAccessToken());
+        if (ignore) return;
+        setName(user.name);
+        setEmail(user.email);
+        setBirthday(user.birthday);
+        setGender(user.gender);
+        setPhone(user.phone_number);
+        setHeight(user.height ? String(user.height) : "");
+        setWeight(user.weight ? String(user.weight) : "");
+        setDiseases(user.managed_diseases);
+      } catch {
+        if (!ignore) setErrorMessage("내 정보를 불러오지 못했습니다.");
+      } finally {
+        if (!ignore) setIsLoading(false);
+      }
+    }
+
+    void loadUser();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   useEffect(() => {
     const h = parseFloat(height);
@@ -51,18 +74,32 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
     if (next.length !== prev.length) setShowDiseaseWarning(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
-    // TODO: API 연결 — PATCH /api/v1/users/me
-    // body: { name, phone_number: phone, height: Number(height), weight: Number(weight), managed_diseases: diseases }
-    // BMI는 서버에서 height/weight 기준 자동 계산
-    // email은 수정 불가, birth_date/gender는 MVP에서 읽기 전용
-    setTimeout(() => {
+    setErrorMessage("");
+    try {
+      await updateCurrentUser(
+        {
+          name,
+          phone_number: phone,
+          height: height ? Number(height) : undefined,
+          weight: weight ? Number(weight) : undefined,
+          managed_diseases: diseases,
+        },
+        getStoredAccessToken(),
+      );
       setIsSaving(false);
       setSaveSuccess(true);
       setTimeout(() => { setSaveSuccess(false); onNavigate("/mypage"); }, 1500);
-    }, 500);
+    } catch {
+      setIsSaving(false);
+      setErrorMessage("정보 저장에 실패했습니다.");
+    }
   };
+
+  if (isLoading) {
+    return <div className="page-container">내 정보를 불러오는 중입니다.</div>;
+  }
 
   return (
     <div className="page-container">
@@ -71,6 +108,11 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
       {saveSuccess && (
         <div style={{ padding: "12px 16px", background: "#e8f5e9", border: "1px solid #a5d6a7", borderRadius: 6, marginBottom: 16, fontSize: 12, color: "#2e7d32" }}>
           정보가 저장되었습니다.
+        </div>
+      )}
+      {errorMessage && (
+        <div style={{ padding: "12px 16px", background: "#fff5f5", border: "1px solid #ffcccc", borderRadius: 6, marginBottom: 16, fontSize: 12, color: "#c62828" }}>
+          {errorMessage}
         </div>
       )}
 
@@ -92,7 +134,7 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
               <div>
                 <label style={{ fontSize: 10, color: "#555", display: "block", marginBottom: 4 }}>이메일</label>
                 <div style={{ height: 34, border: "1.5px solid #e0e0e0", borderRadius: 5, background: "#fafafa", padding: "0 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 11, color: "#aaa" }}>{INITIAL.email}</span>
+                  <span style={{ fontSize: 11, color: "#aaa" }}>{email}</span>
                   <span style={{ padding: "2px 8px", border: "1px solid #e0e0e0", borderRadius: 20, fontSize: 10, color: "#888", background: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>인증 후 변경</span>
                 </div>
                 <p style={{ fontSize: 10, color: "#aaa", margin: "4px 0 0" }}>이메일 변경 시 본인 인증이 필요합니다.</p>
@@ -102,7 +144,7 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
               <div>
                 <label style={{ fontSize: 10, color: "#555", display: "block", marginBottom: 4 }}>생년월일 (읽기 전용)</label>
                 <div style={{ height: 34, border: "1.5px solid #e0e0e0", borderRadius: 5, background: "#fafafa", padding: "0 10px", display: "flex", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: "#aaa" }}>{INITIAL.birth_date}</span>
+                  <span style={{ fontSize: 11, color: "#aaa" }}>{birthday}</span>
                 </div>
               </div>
 
@@ -110,7 +152,7 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
               <div>
                 <label style={{ fontSize: 10, color: "#555", display: "block", marginBottom: 4 }}>성별 (읽기 전용)</label>
                 <div style={{ height: 34, border: "1.5px solid #e0e0e0", borderRadius: 5, background: "#fafafa", padding: "0 10px", display: "flex", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: "#aaa" }}>{INITIAL.gender === "M" ? "남성" : "여성"}</span>
+                  <span style={{ fontSize: 11, color: "#aaa" }}>{gender === "MALE" ? "남성" : "여성"}</span>
                 </div>
               </div>
 

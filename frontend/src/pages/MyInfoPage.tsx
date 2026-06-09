@@ -1,30 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppRoute } from "../App";
+import { getStoredAccessToken } from "../api/auth";
+import { getCurrentUser, type UserInfo } from "../api/users";
 
 interface MyInfoPageProps {
   onNavigate: (route: AppRoute) => void;
 }
-
-// 더미 데이터 — API 연결 시 교체
-// GET /api/v1/users/me
-const DUMMY_USER = {
-  user_id: 1,
-  name: "홍길동",
-  email: "hong@example.com",
-  birth_date: "1985-03-15",
-  gender: "M",
-  phone_number: "010-1234-5678",
-  profile_image_url: null as string | null,
-  managed_diseases: ["HYPERTENSION", "DIABETES"] as string[],
-  height: 175,
-  weight: 72,
-  bmi: 23.5,
-  joined_days: 137,
-  membership_grade: "일반 회원",
-  points: 3450,
-  level: 5,
-  created_at: "2026-01-15",
-};
 
 const DISEASE_LABEL: Record<string, string> = {
   DIABETES: "당뇨",
@@ -34,8 +15,47 @@ const DISEASE_LABEL: Record<string, string> = {
   CKD: "만성신장질환",
 };
 
+function formatDate(value: string) {
+  return value.split("T")[0];
+}
+
 export function MyInfoPage({ onNavigate }: MyInfoPageProps) {
-  const user = DUMMY_USER;
+  const [user, setUser] = useState<UserInfo | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadUser() {
+      try {
+        const result = await getCurrentUser(getStoredAccessToken());
+        if (!ignore) setUser(result);
+      } catch {
+        if (!ignore) setErrorMessage("내 정보를 불러오지 못했습니다.");
+      } finally {
+        if (!ignore) setIsLoading(false);
+      }
+    }
+
+    void loadUser();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  if (isLoading) {
+    return <div className="page-container">내 정보를 불러오는 중입니다.</div>;
+  }
+
+  if (errorMessage || !user) {
+    return (
+      <div className="page-container">
+        <h1 className="page-title">내 정보</h1>
+        <p style={{ color: "#c62828", fontSize: 13 }}>{errorMessage || "내 정보가 없습니다."}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="page-container">
@@ -52,7 +72,7 @@ export function MyInfoPage({ onNavigate }: MyInfoPageProps) {
         {[
           { label: "레벨", val: user.level, unit: "Lv", bg: "#e8f5e9", color: "#2e7d32", border: "#a5d6a7" },
           { label: "포인트", val: user.points.toLocaleString(), unit: "P", bg: "#fff8e1", color: "#f57f17", border: "#ffe082" },
-          { label: "BMI", val: user.bmi, unit: "", bg: "#e3f2fd", color: "#1565c0", border: "#90caf9" },
+          { label: "BMI", val: user.bmi ?? "-", unit: "", bg: "#e3f2fd", color: "#1565c0", border: "#90caf9" },
           { label: "가입일수", val: user.joined_days, unit: "일", bg: "#fce4ec", color: "#c2185b", border: "#f48fb1" },
         ].map(item => (
           <div key={item.label} style={{ padding: "12px 14px", background: item.bg, border: `1.5px solid ${item.border}`, borderRadius: 8, textAlign: "center" }}>
@@ -74,10 +94,10 @@ export function MyInfoPage({ onNavigate }: MyInfoPageProps) {
               {[
                 { label: "이름", val: user.name },
                 { label: "이메일", val: user.email },
-                { label: "생년월일", val: user.birth_date },
-                { label: "성별", val: user.gender === "M" ? "남성" : "여성" },
+                { label: "생년월일", val: user.birthday },
+                { label: "성별", val: user.gender === "MALE" ? "남성" : "여성" },
                 { label: "연락처", val: user.phone_number },
-                { label: "가입일", val: user.created_at },
+                { label: "가입일", val: formatDate(user.created_at) },
               ].map(item => (
                 <div key={item.label}>
                   <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>{item.label}</p>
@@ -92,9 +112,9 @@ export function MyInfoPage({ onNavigate }: MyInfoPageProps) {
             <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 14px" }}>건강 프로필</h3>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16 }}>
               {[
-                { label: "신장", val: `${user.height} cm` },
-                { label: "체중", val: `${user.weight} kg` },
-                { label: "BMI", val: user.bmi },
+                { label: "신장", val: user.height ? `${user.height} cm` : "미입력" },
+                { label: "체중", val: user.weight ? `${user.weight} kg` : "미입력" },
+                { label: "BMI", val: user.bmi ?? "미입력" },
               ].map(item => (
                 <div key={item.label}>
                   <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>{item.label}</p>

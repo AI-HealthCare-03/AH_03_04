@@ -1,5 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppRoute } from "../App";
+import { getStoredAccessToken } from "../api/auth";
+import {
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  type NotificationPreference,
+} from "../api/notifications";
+import {
+  getPolicyDocument,
+  getUserConsents,
+  updateUserConsent,
+  withdrawCurrentUser,
+  type ConsentType,
+  type PolicyDocument,
+  type UserConsent,
+  type WithdrawalReason,
+} from "../api/users";
 
 // ──────────────────────────────────────────────
 // 비밀번호 변경 페이지
@@ -45,14 +61,8 @@ export function ChangePasswordPage({ onNavigate }: ChangePasswordPageProps) {
     const e = validate();
     if (Object.keys(e).length > 0) { setErrors(e); return; }
     setIsSaving(true);
-    // TODO: API 연결 — PATCH /api/v1/users/me/password
-    // body: { current_password: currentPw, new_password: newPw, new_password_confirm: confirmPw }
-    // 응답: 204 No Content
-    // 실패: 401 INVALID_CREDENTIALS (현재 비밀번호 불일치) / 422 PASSWORD_TOO_WEAK / 422 PASSWORD_MISMATCH
-    setTimeout(() => {
-      setIsSaving(false);
-      onNavigate("/mypage");
-    }, 500);
+    setErrors({ api: "비밀번호 변경 API가 아직 백엔드에 구현되지 않았습니다." });
+    setIsSaving(false);
   };
 
   return (
@@ -74,6 +84,7 @@ export function ChangePasswordPage({ onNavigate }: ChangePasswordPageProps) {
             <PasswordField label="새 비밀번호 확인" value={confirmPw} onChange={setConfirmPw} />
             {errors.confirm && <p style={{ fontSize: 11, color: "#E24B4A", margin: "4px 0 0" }}>{errors.confirm}</p>}
           </div>
+          {errors.api && <p style={{ fontSize: 11, color: "#E24B4A", margin: 0 }}>{errors.api}</p>}
         </div>
 
         <hr style={{ border: "none", borderTop: "1px solid #e0e0e0", margin: "16px 0" }} />
@@ -108,7 +119,6 @@ interface NotificationSettingsPageProps {
 }
 
 export function NotificationSettingsPage({ onNavigate }: NotificationSettingsPageProps) {
-  // 더미 데이터 — API 연결 시 교체 (GET /api/v1/notification-preferences)
   const [push, setPush] = useState({
     push_enabled: true,
     health_data_reminder_enabled: true,
@@ -126,19 +136,63 @@ export function NotificationSettingsPage({ onNavigate }: NotificationSettingsPag
   });
   const [quietStart, setQuietStart] = useState("09:00");
   const [quietEnd, setQuietEnd] = useState("21:00");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadPreferences() {
+      try {
+        const { data } = await getNotificationPreferences(getStoredAccessToken());
+        if (ignore) return;
+        setPush({
+          push_enabled: data.push_enabled,
+          health_data_reminder_enabled: data.health_data_reminder_enabled,
+          challenge_mission_enabled: data.challenge_mission_enabled,
+          prediction_result_enabled: data.prediction_result_enabled,
+          advice_update_enabled: data.advice_update_enabled,
+          virtual_pet_enabled: data.virtual_pet_enabled,
+        });
+        setEmail({
+          email_enabled: data.email_enabled,
+          weekly_report_enabled: data.weekly_report_enabled,
+          important_notice_enabled: data.important_notice_enabled,
+          promotion_enabled: data.promotion_enabled,
+        });
+        setQuietStart(data.quiet_start_time.slice(0, 5));
+        setQuietEnd(data.quiet_end_time.slice(0, 5));
+      } catch {
+        if (!ignore) setErrorMessage("알림 설정을 불러오지 못했습니다.");
+      } finally {
+        if (!ignore) setIsLoading(false);
+      }
+    }
+
+    void loadPreferences();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const handleSave = async () => {
     setIsSaving(true);
-    // TODO: API 연결 — PATCH /api/v1/notification-preferences
-    // body: { ...push, ...email, quiet_start_time: quietStart, quiet_end_time: quietEnd }
-    // 응답: 200 수정된 알림 설정
-    // 실패: 422 OUT_OF_RANGE (시간 범위 오류)
-    // ※ 전체 알림 수신(push_enabled)을 끄면 개별 푸시 알림 비활성화
-    setTimeout(() => {
+    setErrorMessage("");
+    try {
+      const payload: Partial<NotificationPreference> = {
+        ...push,
+        ...email,
+        quiet_start_time: quietStart,
+        quiet_end_time: quietEnd,
+      };
+      await updateNotificationPreferences(payload, getStoredAccessToken());
       setIsSaving(false);
       onNavigate("/mypage");
-    }, 500);
+    } catch {
+      setIsSaving(false);
+      setErrorMessage("알림 설정 저장에 실패했습니다.");
+    }
   };
 
   const togglePush = (key: keyof typeof push) => {
@@ -158,6 +212,9 @@ export function NotificationSettingsPage({ onNavigate }: NotificationSettingsPag
   return (
     <div className="page-container">
       <h1 className="page-title">알림 설정</h1>
+
+      {isLoading && <p style={{ fontSize: 13, color: "#888" }}>알림 설정을 불러오는 중입니다.</p>}
+      {errorMessage && <p style={{ fontSize: 12, color: "#c62828" }}>{errorMessage}</p>}
 
       {/* 푸시 알림 */}
       <div style={{ background: "#fff", border: "1px solid #e0e0e0", borderRadius: 10, padding: 20, marginBottom: 14 }}>
@@ -249,42 +306,73 @@ interface TermsManagementPageProps {
 }
 
 export function TermsManagementPage({ onNavigate }: TermsManagementPageProps) {
-  // 더미 데이터 — API 연결 시 교체 (GET /api/v1/users/me/consents)
-  const [optionalConsents, setOptionalConsents] = useState([
-    { consent_type: "MARKETING", title: "마케팅 정보 수신 동의", is_agreed: true, agreed_at: "2026-01-15", policy_version: "v1.0" },
-    { consent_type: "LOCATION", title: "위치 기반 서비스 이용약관", is_agreed: false, agreed_at: null as string | null, policy_version: "v1.0" },
-  ]);
+  const [consents, setConsents] = useState<UserConsent[]>([]);
+  const [recentChanges, setRecentChanges] = useState<{ policy_type: ConsentType; title: string; policy_version: string; changed_at: string | null }[]>([]);
+  const [policyModal, setPolicyModal] = useState<PolicyDocument | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const handleToggleConsent = (consent_type: string, is_agreed: boolean) => {
-    // TODO: API 연결 — PATCH /api/v1/users/me/consents/{consent_type}
-    // body: { is_agreed: !is_agreed, policy_version: "v1.0" }
-    // 응답: 200 { consent_type, is_agreed, agreed_at | withdrawn_at, policy_version }
-    // 실패: 422 INVALID_CONSENT_TYPE (필수 약관 변경 시도)
-    setOptionalConsents(prev => prev.map(c =>
-      c.consent_type === consent_type ? { ...c, is_agreed: !is_agreed, agreed_at: !is_agreed ? new Date().toISOString().split("T")[0] : null } : c
-    ));
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadConsents() {
+      try {
+        const result = await getUserConsents(getStoredAccessToken());
+        if (ignore) return;
+        setConsents(result.items);
+        setRecentChanges(result.recent_policy_changes);
+      } catch {
+        if (!ignore) setErrorMessage("약관 동의 정보를 불러오지 못했습니다.");
+      }
+    }
+
+    void loadConsents();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const openPolicy = async (policyType: ConsentType, version?: string) => {
+    try {
+      setPolicyModal(await getPolicyDocument(policyType, version, getStoredAccessToken()));
+    } catch {
+      setErrorMessage("약관 전문을 불러오지 못했습니다.");
+    }
   };
+
+  const handleToggleConsent = async (consent: UserConsent) => {
+    try {
+      const updated = await updateUserConsent(
+        consent.consent_type,
+        !consent.is_agreed,
+        consent.policy_version,
+        getStoredAccessToken(),
+      );
+      setConsents(prev => prev.map(item => (item.consent_type === updated.consent_type ? updated : item)));
+    } catch {
+      setErrorMessage("선택 약관 상태 변경에 실패했습니다.");
+    }
+  };
+
+  const requiredConsents = consents.filter(consent => consent.is_required);
+  const optionalConsents = consents.filter(consent => !consent.is_required);
 
   return (
     <div className="page-container">
       <h1 className="page-title">약관 및 동의 관리</h1>
+      {errorMessage && <p style={{ fontSize: 12, color: "#c62828" }}>{errorMessage}</p>}
 
       {/* 필수 약관 */}
       <div style={{ background: "#fff", border: "1px solid #e0e0e0", borderRadius: 10, padding: 20, marginBottom: 14 }}>
         <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 14px" }}>필수 약관</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-          {[
-            { title: "서비스 이용약관", date: "2026-01-15 동의" },
-            { title: "개인정보 처리방침", date: "2026-01-15 동의" },
-            { title: "건강 데이터 수집·이용 동의", date: "2026-01-15 동의" },
-          ].map((term, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderBottom: i < 2 ? "1px solid #f0f0f0" : "none" }}>
+          {requiredConsents.map((term, i) => (
+            <div key={term.consent_type} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderBottom: i < requiredConsents.length - 1 ? "1px solid #f0f0f0" : "none" }}>
               <div>
                 <p style={{ fontSize: 12, fontWeight: 600, margin: "0 0 2px" }}>{term.title}</p>
-                <p style={{ fontSize: 10, color: "#aaa", margin: 0 }}>{term.date}</p>
+                <p style={{ fontSize: 10, color: "#aaa", margin: 0 }}>{term.agreed_at ? `${term.agreed_at.split("T")[0]} 동의` : "동의 이력 없음"}</p>
               </div>
-              <button style={{ padding: "6px 12px", border: "1.5px solid #ddd", borderRadius: 6, background: "#fff", fontSize: 11, cursor: "pointer" }}>
-                {/* TODO: API 연결 — GET /api/v1/policy-documents/{policy_type} 로 약관 전문 모달 열기 */}
+              <button onClick={() => openPolicy(term.consent_type, term.policy_version)}
+                style={{ padding: "6px 12px", border: "1.5px solid #ddd", borderRadius: 6, background: "#fff", fontSize: 11, cursor: "pointer" }}>
                 보기
               </button>
             </div>
@@ -310,7 +398,7 @@ export function TermsManagementPage({ onNavigate }: TermsManagementPageProps) {
                 </p>
               </div>
               {/* 동의 상태에 따라 단독 버튼만 표시 (REQ-AUTH-014) */}
-              <button onClick={() => handleToggleConsent(consent.consent_type, consent.is_agreed)}
+              <button onClick={() => handleToggleConsent(consent)}
                 style={{ padding: "6px 12px", border: `1.5px solid ${consent.is_agreed ? "#ddd" : "#1a1a1a"}`, borderRadius: 6, background: consent.is_agreed ? "#fff" : "#1a1a1a", color: consent.is_agreed ? "#555" : "#fff", fontSize: 11, cursor: "pointer" }}>
                 {consent.is_agreed ? "철회" : "동의"}
               </button>
@@ -323,23 +411,38 @@ export function TermsManagementPage({ onNavigate }: TermsManagementPageProps) {
       <div style={{ background: "#fff", border: "1px solid #e0e0e0", borderRadius: 10, padding: 20 }}>
         <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 14px" }}>최근 약관 변경 내역</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-          {[
-            { title: "개인정보 처리방침 변경", date: "2026-03-01", policy_type: "PRIVACY", version: "v1.2" },
-            { title: "서비스 이용약관 변경", date: "2026-01-10", policy_type: "TOS", version: "v1.1" },
-          ].map((change, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", padding: "10px 0", borderBottom: i < 1 ? "1px solid #f0f0f0" : "none" }}>
+          {recentChanges.map((change, i) => (
+            <div key={`${change.policy_type}-${change.policy_version}`} style={{ display: "flex", alignItems: "center", padding: "10px 0", borderBottom: i < recentChanges.length - 1 ? "1px solid #f0f0f0" : "none" }}>
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: 12, margin: "0 0 2px" }}>{change.title}</p>
-                <p style={{ fontSize: 10, color: "#aaa", margin: 0 }}>{change.date} · {change.version}</p>
+                <p style={{ fontSize: 10, color: "#aaa", margin: 0 }}>{change.changed_at ?? "변경일 미등록"} · {change.policy_version}</p>
               </div>
-              <button style={{ padding: "6px 12px", border: "1.5px solid #ddd", borderRadius: 6, background: "#fff", fontSize: 11, cursor: "pointer" }}>
-                {/* TODO: GET /api/v1/policy-documents/{policy_type}?version={version} 로 약관 전문 모달 열기 */}
+              <button onClick={() => openPolicy(change.policy_type, change.policy_version)}
+                style={{ padding: "6px 12px", border: "1.5px solid #ddd", borderRadius: 6, background: "#fff", fontSize: 11, cursor: "pointer" }}>
                 변경 내용 보기
               </button>
             </div>
           ))}
         </div>
       </div>
+
+      {policyModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ width: 560, maxHeight: "80vh", overflow: "auto", background: "#fff", borderRadius: 12, padding: 24 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 6px" }}>{policyModal.title}</h3>
+            <p style={{ fontSize: 11, color: "#888", margin: "0 0 16px" }}>
+              {policyModal.policy_version} · {policyModal.changed_at ?? "변경일 미등록"}
+            </p>
+            <div style={{ whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.7, color: "#333", border: "1px solid #eee", borderRadius: 8, padding: 14 }}>
+              {policyModal.content}
+            </div>
+            <button onClick={() => setPolicyModal(null)}
+              style={{ marginTop: 16, width: "100%", height: 38, border: "none", borderRadius: 8, background: "#1a1a1a", color: "#fff", fontSize: 13, fontWeight: 600 }}>
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -352,15 +455,15 @@ interface WithdrawalPageProps {
 }
 
 const WITHDRAWAL_REASONS = [
-  { code: "LOW_USAGE", label: "서비스 이용 빈도가 낮음" },
-  { code: "NO_FEATURE", label: "원하는 기능이 없음" },
+  { code: "NOT_USEFUL", label: "서비스 이용 빈도가 낮음" },
+  { code: "HARD_TO_USE", label: "사용이 어려움" },
   { code: "PRIVACY_CONCERN", label: "개인정보 보호 우려" },
-  { code: "MOVE_TO_OTHER", label: "다른 서비스로 이동" },
+  { code: "FOUND_ALTERNATIVE", label: "다른 서비스로 이동" },
   { code: "OTHER", label: "기타" },
 ];
 
 export function WithdrawalPage({ onNavigate }: WithdrawalPageProps) {
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState<WithdrawalReason | "">("");
   const [comment, setComment] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -371,18 +474,28 @@ export function WithdrawalPage({ onNavigate }: WithdrawalPageProps) {
 
   const isValid = reason && password && agreed;
 
-  const handleWithdraw = () => {
+  const handleWithdraw = async () => {
+    if (!reason) return;
     setIsDeleting(true);
-    // TODO: API 연결 — DELETE /api/v1/users/me
-    // body: { password, withdrawal_reason: reason, withdrawal_comment: comment, confirm_agreed: true }
-    // 응답: 204 No Content (PII 즉시 삭제, 학습 데이터 익명화 보존)
-    // 실패: 401 INVALID_CREDENTIALS (비밀번호 불일치) / 422 CONSENT_REQUIRED (동의 체크 미완)
-    // 탈퇴 후 동일 이메일 재가입은 일정 기간 제한될 수 있음 (REQ-AUTH-011)
-    setTimeout(() => {
+    setPwError("");
+    try {
+      await withdrawCurrentUser(
+        {
+          password,
+          withdrawal_reason: reason,
+          withdrawal_comment: comment || null,
+          confirm_agreed: true,
+        },
+        getStoredAccessToken(),
+      );
       setIsDeleting(false);
       setShowConfirm(false);
       onNavigate("/");
-    }, 1000);
+    } catch {
+      setIsDeleting(false);
+      setShowConfirm(false);
+      setPwError("회원 탈퇴 처리에 실패했습니다. 비밀번호를 확인해주세요.");
+    }
   };
 
   return (
@@ -407,7 +520,7 @@ export function WithdrawalPage({ onNavigate }: WithdrawalPageProps) {
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
           {WITHDRAWAL_REASONS.map(r => (
             <label key={r.code} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-              <input type="radio" name="reason" value={r.code} checked={reason === r.code} onChange={() => setReason(r.code)} style={{ width: 14, height: 14 }} />
+              <input type="radio" name="reason" value={r.code} checked={reason === r.code} onChange={() => setReason(r.code as WithdrawalReason)} style={{ width: 14, height: 14 }} />
               <span style={{ fontSize: 12, color: "#333" }}>{r.label}</span>
             </label>
           ))}
