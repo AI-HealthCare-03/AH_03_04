@@ -14,6 +14,7 @@ from app.core.utils.security import hash_password, verify_password
 from app.dtos.auth import GoogleRegistrationRequest, LoginRequest, SignUpAvailabilityRequest, SignUpRequest
 from app.models.users import ConsentType, EmailVerification, PasswordResetToken, User, UserConsent
 from app.repositories.user_repository import UserRepository
+from app.services.account_stats import ensure_user_account_stats
 from app.services.email import EmailService
 from app.services.google_auth import GoogleAuthService
 from app.services.jwt import JwtService
@@ -57,6 +58,7 @@ class AuthService:
                 birthday=data.birth_date,
             )
             await replace_user_managed_diseases(user.id, data.managed_diseases)
+            await ensure_user_account_stats(user.id)
             await self._create_initial_consents(user, data)
 
             return user
@@ -152,6 +154,7 @@ class AuthService:
                 profile_image_url=google_user.picture,
             )
             await replace_user_managed_diseases(user.id, data.managed_diseases)
+            await ensure_user_account_stats(user.id)
             await self._create_initial_consents(user, data)
             return user
 

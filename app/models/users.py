@@ -69,6 +69,22 @@ class UserManagedDisease(models.Model):
         unique_together = (("user", "disease_code"),)
 
 
+class UserAccountStats(models.Model):
+    user = fields.OneToOneField(
+        "models.User",
+        related_name="account_stats",
+        primary_key=True,
+        on_delete=fields.CASCADE,
+    )
+    membership_grade = fields.CharField(max_length=30, default="일반 회원")
+    points = fields.IntField(default=0)
+    level = fields.IntField(default=1)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "user_account_stats"
+
+
 class EmailVerification(models.Model):
     id = fields.BigIntField(primary_key=True)
     user = fields.ForeignKeyField("models.User", related_name="email_verifications")

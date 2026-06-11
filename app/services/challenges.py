@@ -24,6 +24,7 @@ from app.dtos.challenges import (
 )
 from app.models.challenges import Challenge, ChallengeCheckin, ChallengeLeaderboard, ChallengeParticipation, UserBadge
 from app.models.users import User
+from app.services.account_stats import sync_user_account_stats
 
 DEFAULT_CHALLENGES = [
     {
@@ -693,10 +694,11 @@ class ChallengeService:
 
     @staticmethod
     async def _award_streak_badges(user: User, challenge: Challenge, current_streak: int) -> None:
+        awarded = False
         for definition in BADGE_DEFINITIONS:
             if current_streak < definition["target_streak"]:
                 continue
-            await UserBadge.get_or_create(
+            _, created = await UserBadge.get_or_create(
                 user_id=user.id,
                 challenge_id=challenge.id,
                 badge_type=definition["badge_type"],
@@ -707,6 +709,9 @@ class ChallengeService:
                     "bonus_points": definition["bonus_points"],
                 },
             )
+            awarded = awarded or created
+        if awarded:
+            await sync_user_account_stats(user.id)
 
     @staticmethod
     async def _upsert_weekly_leaderboard(user: User, week_start: date) -> None:

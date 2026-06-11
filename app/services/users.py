@@ -22,6 +22,7 @@ from app.models.predictions import ChronicHealthInput, UserProfile
 from app.models.users import ConsentType, PolicyDocument, User, UserConsent
 from app.models.users import UserWithdrawalRequest as UserWithdrawal
 from app.repositories.user_repository import UserRepository
+from app.services.account_stats import sync_user_account_stats
 from app.services.managed_diseases import get_user_managed_disease_codes, replace_user_managed_diseases
 
 
@@ -54,11 +55,13 @@ class UserManageService:
         managed_diseases = await get_user_managed_disease_codes(user.id)
         if not managed_diseases and latest_health:
             managed_diseases = latest_health.diagnosed_diseases
+        account_stats = await sync_user_account_stats(user.id)
         return self._to_user_info_response(
             user=user,
             profile=profile,
             latest_health=latest_health,
             managed_diseases=managed_diseases,
+            account_stats=account_stats,
             today=date.today(),
         )
 
@@ -223,6 +226,7 @@ class UserManageService:
         profile: UserProfile | None,
         latest_health: ChronicHealthInput | None,
         managed_diseases: list[str],
+        account_stats,
         today: date,
     ) -> UserInfoResponse:
         return UserInfoResponse(
@@ -238,6 +242,9 @@ class UserManageService:
             bmi=float(profile.bmi) if profile else None,
             managed_diseases=managed_diseases,
             joined_days=_joined_days(user.created_at.date(), today),
+            membership_grade=account_stats.membership_grade,
+            points=account_stats.points,
+            level=account_stats.level,
             created_at=user.created_at,
         )
 

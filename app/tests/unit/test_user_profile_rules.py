@@ -28,12 +28,14 @@ def test_user_info_response_combines_user_profile_and_latest_health():
     )
     profile = SimpleNamespace(height_cm=Decimal("175.00"), weight_kg=Decimal("72.00"), bmi=Decimal("23.51"))
     latest_health = SimpleNamespace(diagnosed_diseases=["HYPERTENSION", "DIABETES"])
+    account_stats = SimpleNamespace(membership_grade="실버", points=550, level=6)
 
     result = UserManageService._to_user_info_response(
         user=user,
         profile=profile,
         latest_health=latest_health,
         managed_diseases=["HYPERTENSION", "DIABETES"],
+        account_stats=account_stats,
         today=date(2026, 6, 3),
     )
 
@@ -44,9 +46,9 @@ def test_user_info_response_combines_user_profile_and_latest_health():
     assert result.bmi == 23.51
     assert result.managed_diseases == ["HYPERTENSION", "DIABETES"]
     assert result.joined_days == 140
-    assert result.membership_grade == "일반 회원"
-    assert result.points == 0
-    assert result.level == 1
+    assert result.membership_grade == "실버"
+    assert result.points == 550
+    assert result.level == 6
 
 
 def test_profile_update_payload_uses_existing_profile_value_when_one_metric_changes():
