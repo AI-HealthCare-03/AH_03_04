@@ -71,6 +71,7 @@ from app.models.predictions import (
     LifestyleInput,
     LipidObesityRecord,
     MealLog,
+    ModelVersion,
     PredictionFeedback,
     PredictionInputSnapshot,
     PredictionMode,
@@ -94,6 +95,8 @@ DISEASE_MAPPINGS = {
     "hypertension": ("HYPERTENSION", "고혈압"),
     "kidney": ("CKD", "만성신장질환"),
 }
+DEFAULT_MODEL_VERSION = "V8"
+DEFAULT_MODEL_TASK = "BINARY_CLASSIFICATION"
 
 DYSLIPIDEMIA_FIELDS = ["total_cholesterol", "hdl_cholesterol", "ldl_cholesterol", "triglycerides"]
 DYSLIPIDEMIA_UPPER_RULES = {
@@ -1302,7 +1305,17 @@ class PredictionService:
             )
             for disease, values in disease_predictions.items():
                 values["risk_factors"] = self._risk_factors(disease, health, lifestyle, lipid, renal)
-                await PredictionResultItem.create(result=result, disease_code=disease, **values)
+                model_version = await self._ensure_model_version(
+                    disease_code=disease,
+                    threshold=values["threshold"],
+                )
+                await PredictionResultItem.create(
+                    result=result,
+                    disease_code=disease,
+                    model_version=model_version.version,
+                    model_version_ref=model_version,
+                    **values,
+                )
             task.status = PredictionStatus.SUCCESS
         except Exception as exc:
             task.status = PredictionStatus.FAILED
@@ -1384,6 +1397,23 @@ class PredictionService:
             feedback_type=data.feedback_type,
             created_at=feedback.created_at,
         )
+
+    @staticmethod
+    async def _ensure_model_version(disease_code: str, threshold: Decimal) -> ModelVersion:
+        model_version, created = await ModelVersion.get_or_create(
+            version=DEFAULT_MODEL_VERSION,
+            disease_code=disease_code,
+            model_task=DEFAULT_MODEL_TASK,
+            defaults={
+                "threshold": threshold,
+                "is_active": True,
+                "metadata": {"source": "ai_worker.models", "mode": "screening"},
+            },
+        )
+        if not created and model_version.threshold != threshold:
+            model_version.threshold = threshold
+            await model_version.save(update_fields=["threshold"])
+        return model_version
 
     @staticmethod
     def _to_disease_risks(items: list[PredictionResultItem]) -> dict[str, dict[str, Any]]:
