@@ -20,6 +20,7 @@ from app.services.google_auth import GoogleAuthService
 from app.services.jwt import JwtService
 from app.services.managed_diseases import replace_user_managed_diseases
 from app.services.rate_limiter import AuthRateLimiter
+from app.services.refresh_tokens import RefreshTokenSessionService
 
 
 def _mask_email(email: str) -> str:
@@ -36,6 +37,7 @@ class AuthService:
         self.rate_limiter = AuthRateLimiter()
         self.email_service = EmailService()
         self.google_auth_service = GoogleAuthService()
+        self.refresh_token_sessions = RefreshTokenSessionService()
 
     async def signup(self, data: SignUpRequest) -> User:
         # 이메일 중복 체크
@@ -95,9 +97,11 @@ class AuthService:
         await self.rate_limiter.reset_login_failures(email=email)
         return user
 
-    async def login(self, user: User) -> dict[str, AccessToken | RefreshToken]:
+    async def login(self, user: User, remember_me: bool = False) -> dict[str, AccessToken | RefreshToken]:
         await self.user_repo.update_last_login(user.id)
-        return self.jwt_service.issue_jwt_pair(user)
+        tokens = self.jwt_service.issue_jwt_pair(user)
+        await self.refresh_token_sessions.create_session(user.id, tokens["refresh_token"], remember_me)
+        return tokens
 
     async def authenticate_google(self, id_token: str) -> User:
         google_user = self.google_auth_service.verify_id_token(id_token)
@@ -218,6 +222,7 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_410_GONE, detail="토큰이 만료되었습니다. 다시 요청해주세요.")
 
         await self.user_repo.update_password(reset_token.user_id, hash_password(new_password))
+        await self.refresh_token_sessions.revoke_all_for_user(reset_token.user_id)
         reset_token.used_at = now
         await reset_token.save(update_fields=["used_at"])
 

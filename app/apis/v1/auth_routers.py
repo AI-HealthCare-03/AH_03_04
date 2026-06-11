@@ -20,7 +20,7 @@ from app.dtos.auth import (
 )
 from app.models.users import User
 from app.services.auth import AuthService
-from app.services.jwt import JwtService
+from app.services.refresh_tokens import RefreshTokenSessionService
 from app.services.security_audit import SecurityAuditEvent, log_security_event, mask_email, safe_summary
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -101,7 +101,7 @@ async def login(
             masked_summary=safe_summary({"email": mask_email(str(request.email)), "reason": exc.status_code}),
         )
         raise
-    tokens = await auth_service.login(user)
+    tokens = await auth_service.login(user, remember_me=request.remember_me)
     await log_security_event(
         event_type=SecurityAuditEvent.LOGIN_SUCCESS,
         request=http_request,
@@ -141,7 +141,7 @@ async def google_login(
             masked_summary=safe_summary({"reason": exc.status_code}),
         )
         raise
-    tokens = await auth_service.login(user)
+    tokens = await auth_service.login(user, remember_me=request.remember_me)
     await log_security_event(
         event_type=SecurityAuditEvent.GOOGLE_LOGIN_SUCCESS,
         request=http_request,
@@ -172,7 +172,7 @@ async def google_registration(
     auth_service: Annotated[AuthService, Depends(AuthService)],
 ) -> JSONResponse:
     user = await auth_service.signup_google(request)
-    tokens = await auth_service.login(user)
+    tokens = await auth_service.login(user, remember_me=request.remember_me)
     await log_security_event(
         event_type=SecurityAuditEvent.GOOGLE_LOGIN_SUCCESS,
         request=http_request,
@@ -189,12 +189,21 @@ async def google_registration(
 
 
 @auth_router.post("/sessions/current", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_current_session_alias(http_request: Request) -> Response:
-    return await logout(http_request)
+async def delete_current_session_alias(
+    http_request: Request,
+    refresh_session_service: Annotated[RefreshTokenSessionService, Depends(RefreshTokenSessionService)],
+    refresh_token: Annotated[str | None, Cookie()] = None,
+) -> Response:
+    return await logout(http_request, refresh_session_service, refresh_token)
 
 
 @auth_router.delete("/sessions/current", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(http_request: Request) -> Response:
+async def logout(
+    http_request: Request,
+    refresh_session_service: Annotated[RefreshTokenSessionService, Depends(RefreshTokenSessionService)],
+    refresh_token: Annotated[str | None, Cookie()] = None,
+) -> Response:
+    await refresh_session_service.revoke(refresh_token)
     await log_security_event(
         event_type=SecurityAuditEvent.LOGOUT,
         request=http_request,
@@ -277,8 +286,8 @@ async def reset_password(
 
 @auth_router.get("/token/refresh", response_model=TokenRefreshResponse, status_code=status.HTTP_200_OK)
 async def token_refresh(
-    jwt_service: Annotated[JwtService, Depends(JwtService)],
     http_request: Request,
+    refresh_session_service: Annotated[RefreshTokenSessionService, Depends(RefreshTokenSessionService)],
     refresh_token: Annotated[str | None, Cookie()] = None,
 ) -> JSONResponse:
     if not refresh_token:
@@ -290,10 +299,15 @@ async def token_refresh(
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token is missing.")
     try:
-        access_token = jwt_service.refresh_jwt(refresh_token)
+        access_token, new_refresh_token, remember_me = await refresh_session_service.rotate(refresh_token)
     except HTTPException as exc:
+        event = (
+            SecurityAuditEvent.REFRESH_TOKEN_REUSED
+            if exc.detail == "Refresh token reuse detected."
+            else SecurityAuditEvent.UNAUTHORIZED_ACCESS
+        )
         await log_security_event(
-            event_type=SecurityAuditEvent.UNAUTHORIZED_ACCESS,
+            event_type=event,
             request=http_request,
             status_code=exc.status_code,
             masked_summary=safe_summary({"reason": "invalid_refresh_token"}),
@@ -305,15 +319,17 @@ async def token_refresh(
         user_id=access_token.payload.get("user_id"),
         status_code=status.HTTP_200_OK,
     )
-    return JSONResponse(
+    resp = JSONResponse(
         content=TokenRefreshResponse(access_token=str(access_token)).model_dump(), status_code=status.HTTP_200_OK
     )
+    set_refresh_token_cookie(resp, str(new_refresh_token), remember_me)
+    return resp
 
 
 @auth_router.post("/access-tokens", response_model=TokenRefreshResponse, status_code=status.HTTP_200_OK)
 async def create_access_token(
-    jwt_service: Annotated[JwtService, Depends(JwtService)],
     http_request: Request,
+    refresh_session_service: Annotated[RefreshTokenSessionService, Depends(RefreshTokenSessionService)],
     refresh_token: Annotated[str | None, Cookie()] = None,
 ) -> JSONResponse:
-    return await token_refresh(jwt_service, http_request, refresh_token)
+    return await token_refresh(http_request, refresh_session_service, refresh_token)
