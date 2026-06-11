@@ -110,7 +110,9 @@ class EmailService:
             if config.SMTP_USERNAME and config.SMTP_PASSWORD:
                 smtp.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
             smtp.send_message(message)
-        default_logger.info("email delivered via smtp: to=%s subject=%s attachment=%s", to_email, subject, bool(attachment))
+        default_logger.info(
+            "email delivered via smtp: to=%s subject=%s attachment=%s", to_email, subject, bool(attachment)
+        )
 
     @staticmethod
     def _build_url(path: str, params: dict[str, str]) -> str:

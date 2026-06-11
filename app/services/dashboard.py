@@ -15,7 +15,12 @@ from app.models.users import User
 
 class DashboardService:
     async def get_risk_trends(self, user: User, limit: int = 10) -> DashboardRiskTrendResponse:
-        results = await PredictionResult.filter(user_id=user.id).order_by("-created_at").limit(limit).prefetch_related("items")
+        results = (
+            await PredictionResult.filter(user_id=user.id)
+            .order_by("-created_at")
+            .limit(limit)
+            .prefetch_related("items")
+        )
         items = [
             DashboardRiskTrendItemResponse(
                 result_id=result.id,
@@ -42,7 +47,9 @@ class DashboardService:
         items = []
         current = start
         while current <= end:
-            items.append(DashboardChallengeCalendarItemResponse(activity_date=current, completed_count=counts.get(current, 0)))
+            items.append(
+                DashboardChallengeCalendarItemResponse(activity_date=current, completed_count=counts.get(current, 0))
+            )
             current += timedelta(days=1)
         return DashboardChallengeCalendarResponse(items=items)
 
