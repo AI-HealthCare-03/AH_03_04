@@ -15,6 +15,7 @@ TORTOISE_APP_MODELS = [
     "app.models.reports",
     "app.models.pets",
     "app.models.scores",
+    "app.models.security",
 ]
 
 TORTOISE_ORM = {
