@@ -58,9 +58,9 @@ class TestLoginAPI(TestCase):
         login_data = {"email": "rate_limit_test@example.com", "password": "WrongPassword123!"}
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            responses = [await client.post("/api/v1/auth/login", json=login_data) for _ in range(5)]
+            responses = [await client.post("/api/v1/auth/login", json=login_data) for _ in range(3)]
 
-        assert [response.status_code for response in responses[:4]] == [status.HTTP_400_BAD_REQUEST] * 4
+        assert [response.status_code for response in responses[:2]] == [status.HTTP_400_BAD_REQUEST] * 2
         assert responses[-1].status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     async def test_logout_clears_refresh_cookie(self):

@@ -17,6 +17,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.email import EmailService
 from app.services.google_auth import GoogleAuthService
 from app.services.jwt import JwtService
+from app.services.managed_diseases import replace_user_managed_diseases
 from app.services.rate_limiter import AuthRateLimiter
 
 
@@ -55,6 +56,7 @@ class AuthService:
                 gender=data.gender,
                 birthday=data.birth_date,
             )
+            await replace_user_managed_diseases(user.id, data.managed_diseases)
             await self._create_initial_consents(user, data)
 
             return user
@@ -149,6 +151,7 @@ class AuthService:
                 google_sub=google_user.sub,
                 profile_image_url=google_user.picture,
             )
+            await replace_user_managed_diseases(user.id, data.managed_diseases)
             await self._create_initial_consents(user, data)
             return user
 

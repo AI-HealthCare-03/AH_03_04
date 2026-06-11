@@ -15,6 +15,12 @@ type GoogleCredentialResponse = {
 
 const GOOGLE_SIGNUP_DRAFT_KEY = "auth.googleSignupDraft";
 
+function extractRemainingAttempts(detail: unknown): number | null {
+  if (typeof detail !== "string") return null;
+  const match = detail.match(/\((\d+)회 시도 남음\)/);
+  return match ? Number(match[1]) : null;
+}
+
 function decodeGoogleCredential(credential: string): { email?: string; name?: string; picture?: string } {
   try {
     const payload = credential.split(".")[1];
@@ -50,7 +56,7 @@ export function LoginPage({ onLogin, onNavigate }: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [errorCount, setErrorCount] = useState(0); // 0: 기본, 3: 3회남음, 1: 1회남음, -1: 잠금
+  const [errorCount, setErrorCount] = useState(0); // 0: 기본, 양수: 남은 횟수, -1: 잠금
   const [rememberMe, setRememberMe] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -68,11 +74,24 @@ export function LoginPage({ onLogin, onNavigate }: LoginPageProps) {
       setErrorCount(0);
       onLogin();
     } catch (error) {
-      if (error instanceof ApiError && error.status === 429) {
-        setErrorCount(-1);
-        setErrorMessage("짧은 시간 내 로그인 시도가 반복되었습니다. 잠시 후 다시 시도해주세요.");
+      if (error instanceof ApiError) {
+        if (error.status === 429) {
+          setErrorCount(-1);
+          setErrorMessage(error.message || "짧은 시간 내 로그인 시도가 반복되었습니다. 잠시 후 다시 시도해주세요.");
+          return;
+        }
+
+        const remainingAttempts = extractRemainingAttempts(error.detail);
+        if (remainingAttempts !== null) {
+          setErrorCount(remainingAttempts > 0 ? remainingAttempts : -1);
+          setErrorMessage(error.message);
+          return;
+        }
+
+        setErrorCount(0);
+        setErrorMessage(error.message || "이메일 또는 비밀번호가 올바르지 않습니다.");
       } else {
-        setErrorCount(prev => (prev === 0 ? 3 : prev === 3 ? 1 : -1));
+        setErrorCount(0);
         setErrorMessage("이메일 또는 비밀번호가 올바르지 않습니다.");
       }
     } finally {
@@ -271,8 +290,7 @@ export function LoginPage({ onLogin, onNavigate }: LoginPageProps) {
                 {showPassword ? "🙈" : "👁"}
               </button>
             </div>
-            {errorCount === 3 && <p style={{ fontSize: 12, color: "#E24B4A", margin: "4px 0 0" }}>이메일 또는 비밀번호가 올바르지 않습니다. (3회 시도 남음)</p>}
-            {errorMessage && errorCount !== 3 && errorCount !== 1 && (
+            {errorMessage && errorCount !== 1 && (
               <p style={{ fontSize: 12, color: "#E24B4A", margin: "4px 0 0" }}>{errorMessage}</p>
             )}
           </div>

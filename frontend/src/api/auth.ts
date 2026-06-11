@@ -24,6 +24,7 @@ export type GoogleSignUpPayload = {
   gender: "MALE" | "FEMALE";
   birth_date: string;
   phone_number: string;
+  managed_diseases?: string[];
   consent_terms_version?: string;
   consent_privacy_agreed?: boolean;
   consent_health_data?: boolean;
@@ -38,6 +39,7 @@ export type SignUpPayload = {
   gender: "MALE" | "FEMALE";
   birth_date: string;
   phone_number: string;
+  managed_diseases?: string[];
   consent_terms_version?: string;
   consent_privacy_agreed?: boolean;
   consent_health_data?: boolean;

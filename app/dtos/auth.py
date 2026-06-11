@@ -21,6 +21,7 @@ class SignUpRequest(BaseModel):
     consent_privacy_agreed: bool = True
     consent_health_data: bool = True
     consent_marketing: bool = False
+    managed_diseases: list[str] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
     def validate_required_consents(self):
@@ -65,6 +66,7 @@ class GoogleRegistrationRequest(BaseModel):
     consent_privacy_agreed: bool = True
     consent_health_data: bool = True
     consent_marketing: bool = False
+    managed_diseases: list[str] = Field(default_factory=list, max_length=5)
     remember_me: bool = False
 
     @model_validator(mode="after")

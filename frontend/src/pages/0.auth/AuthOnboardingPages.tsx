@@ -117,6 +117,7 @@ export function TermsAgreementPage({ onNavigate }: TermsAgreementPageProps) {
           gender: parsedDraft.gender,
           birth_date: parsedDraft.birth_date,
           phone_number: parsedDraft.phone_number,
+          managed_diseases: _managedDiseases ?? [],
           consent_terms_version: "v1.0",
           consent_privacy_agreed: checked.privacy,
           consent_health_data: checked.health,
@@ -141,6 +142,7 @@ export function TermsAgreementPage({ onNavigate }: TermsAgreementPageProps) {
 
       const payload: SignUpPayload = {
         ...(draft as SignUpPayload),
+        managed_diseases: _managedDiseases ?? [],
         consent_terms_version: "v1.0",
         consent_privacy_agreed: checked.privacy,
         consent_health_data: checked.health,

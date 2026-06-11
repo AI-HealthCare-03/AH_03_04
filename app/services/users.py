@@ -22,6 +22,7 @@ from app.models.predictions import ChronicHealthInput, UserProfile
 from app.models.users import ConsentType, PolicyDocument, User, UserConsent
 from app.models.users import UserWithdrawalRequest as UserWithdrawal
 from app.repositories.user_repository import UserRepository
+from app.services.managed_diseases import get_user_managed_disease_codes, replace_user_managed_diseases
 
 
 def _calculate_bmi(height_cm: float, weight_kg: float) -> float:
@@ -50,7 +51,16 @@ class UserManageService:
     async def get_user_info(self, user: User) -> UserInfoResponse:
         profile = await UserProfile.get_or_none(user_id=user.id)
         latest_health = await ChronicHealthInput.filter(user_id=user.id).order_by("-created_at").first()
-        return self._to_user_info_response(user=user, profile=profile, latest_health=latest_health, today=date.today())
+        managed_diseases = await get_user_managed_disease_codes(user.id)
+        if not managed_diseases and latest_health:
+            managed_diseases = latest_health.diagnosed_diseases
+        return self._to_user_info_response(
+            user=user,
+            profile=profile,
+            latest_health=latest_health,
+            managed_diseases=managed_diseases,
+            today=date.today(),
+        )
 
     async def update_user(self, user: User, data: UserUpdateRequest) -> User:
         profile = await UserProfile.get_or_none(user_id=user.id)
@@ -73,6 +83,7 @@ class UserManageService:
             if profile_payload:
                 await UserProfile.update_or_create(defaults=profile_payload, user_id=user.id)
             if data.managed_diseases is not None:
+                await replace_user_managed_diseases(user.id, data.managed_diseases)
                 await self._update_latest_managed_diseases(user.id, data.managed_diseases)
             await user.refresh_from_db()
         return user
@@ -211,6 +222,7 @@ class UserManageService:
         user: User,
         profile: UserProfile | None,
         latest_health: ChronicHealthInput | None,
+        managed_diseases: list[str],
         today: date,
     ) -> UserInfoResponse:
         return UserInfoResponse(
@@ -224,7 +236,7 @@ class UserManageService:
             height=float(profile.height_cm) if profile else None,
             weight=float(profile.weight_kg) if profile else None,
             bmi=float(profile.bmi) if profile else None,
-            managed_diseases=latest_health.diagnosed_diseases if latest_health else [],
+            managed_diseases=managed_diseases,
             joined_days=_joined_days(user.created_at.date(), today),
             created_at=user.created_at,
         )

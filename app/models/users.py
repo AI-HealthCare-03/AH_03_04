@@ -24,6 +24,17 @@ class WithdrawalReason(StrEnum):
     OTHER = "OTHER"
 
 
+class DiseaseCode(models.Model):
+    code = fields.CharField(max_length=30, primary_key=True)
+    display_name = fields.CharField(max_length=50)
+    description = fields.CharField(max_length=255, null=True)
+    is_active = fields.BooleanField(default=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "disease_codes"
+
+
 class User(models.Model):
     id = fields.BigIntField(primary_key=True)
     email = fields.CharField(max_length=40)
@@ -44,6 +55,18 @@ class User(models.Model):
 
     class Meta:
         table = "users"
+
+
+class UserManagedDisease(models.Model):
+    id = fields.BigIntField(primary_key=True)
+    user = fields.ForeignKeyField("models.User", related_name="managed_disease_rows", on_delete=fields.CASCADE)
+    disease_code = fields.CharField(max_length=30)
+    is_primary = fields.BooleanField(default=False)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "user_managed_diseases"
+        unique_together = (("user", "disease_code"),)
 
 
 class EmailVerification(models.Model):

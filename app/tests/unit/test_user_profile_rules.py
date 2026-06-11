@@ -33,6 +33,7 @@ def test_user_info_response_combines_user_profile_and_latest_health():
         user=user,
         profile=profile,
         latest_health=latest_health,
+        managed_diseases=["HYPERTENSION", "DIABETES"],
         today=date(2026, 6, 3),
     )
 
