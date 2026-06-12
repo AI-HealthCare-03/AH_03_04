@@ -75,9 +75,12 @@ export function LoginPage({ onLogin, onNavigate }: LoginPageProps) {
       onLogin();
     } catch (error) {
       if (error instanceof ApiError) {
-        if (error.status === 429) {
+        if (error.status === 423 || error.status === 429) {
           setErrorCount(-1);
-          setErrorMessage(error.message || "짧은 시간 내 로그인 시도가 반복되었습니다. 잠시 후 다시 시도해주세요.");
+          setErrorMessage(
+            error.message ||
+            "비밀번호 입력 실패가 반복되어 계정이 일시적으로 잠겼습니다. 잠시 후 다시 시도해주세요.",
+          );
           return;
         }
 
@@ -248,8 +251,10 @@ export function LoginPage({ onLogin, onNavigate }: LoginPageProps) {
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
                 <span style={{ fontSize: 18, color: "#e87b72" }}>⏱</span>
                 <div>
-                  <div style={{ fontSize: 17, fontWeight: 500, color: "#c0392b" }}>로그인 요청이 잠시 제한되었습니다</div>
-                  <div style={{ fontSize: 15, color: "#c0392b", marginTop: 4, lineHeight: 1.6 }}>짧은 시간 내 로그인 시도가 반복되었습니다. 잠시 후 다시 시도해주세요.</div>
+                  <div style={{ fontSize: 17, fontWeight: 500, color: "#c0392b" }}>계정이 일시적으로 잠겼습니다</div>
+                  <div style={{ fontSize: 15, color: "#c0392b", marginTop: 4, lineHeight: 1.6 }}>
+                    {errorMessage || "비밀번호 입력 실패가 반복되었습니다. 잠시 후 다시 시도하거나 비밀번호를 재설정해주세요."}
+                  </div>
                 </div>
               </div>
               <button onClick={() => onNavigate?.("/password-reset")} style={{ width: "100%", height: 34, border: "0.5px solid #e87b72", borderRadius: 8, background: "#fff", color: "#c0392b", fontSize: 17, cursor: "pointer", marginBottom: 8 }}>비밀번호 재설정</button>

@@ -1640,8 +1640,7 @@ class PredictionService:
                     "triglycerides": lipid.triglycerides,
                 }
             )
-            if lipid.waist_circumference is not None:
-                raw["waist_circumference"] = float(lipid.waist_circumference)
+            self._apply_lipid_obesity_model_overrides(raw, lipid)
         if renal:
             raw.update(
                 {
@@ -1710,6 +1709,17 @@ class PredictionService:
         if snapshot.renal_record_id is not None and renal is None:
             raise ValueError("예측 입력 소유자 검증에 실패했습니다.")
         return health, lifestyle, lipid, renal
+
+    @staticmethod
+    def _apply_lipid_obesity_model_overrides(raw: dict[str, Any], lipid: LipidObesityRecord) -> None:
+        if lipid.height_cm is not None:
+            raw["height"] = float(lipid.height_cm)
+        if lipid.weight_kg is not None:
+            raw["weight"] = float(lipid.weight_kg)
+        if lipid.bmi is not None:
+            raw["bmi"] = float(lipid.bmi)
+        if lipid.waist_circumference is not None:
+            raw["waist_circumference"] = float(lipid.waist_circumference)
 
     @staticmethod
     def _to_model_lifestyle_input(lifestyle: LifestyleInput) -> dict[str, Any]:
