@@ -4,12 +4,21 @@ RUN_IN_TRANSACTION = True
 
 
 async def upgrade(db: BaseDBAsyncClient) -> str:
-    return """
-        ALTER TABLE `activity_logs` ADD INDEX `idx_activity_logs_user_record_date_multi` (`user_id`, `record_date`);
-        ALTER TABLE `activity_logs` DROP INDEX `uid_activity_lo_user_id_a5f7f7`;
-        ALTER TABLE `activity_logs` ADD `exercise_minutes` INT;
-        ALTER TABLE `activity_logs` ADD `water_ml` INT;
-        ALTER TABLE `activity_logs` ADD `steps` INT;"""
+    indexes = await db.execute_query_dict("SHOW INDEX FROM `activity_logs`")
+    index_names = {row["Key_name"] for row in indexes}
+    columns = await db.execute_query_dict("SHOW COLUMNS FROM `activity_logs`")
+    column_names = {row["Field"] for row in columns}
+
+    statements: list[str] = []
+    if "idx_activity_logs_user_record_date_multi" not in index_names:
+        statements.append("ALTER TABLE `activity_logs` ADD INDEX `idx_activity_logs_user_record_date_multi` (`user_id`, `record_date`);")
+    for index_name in ("uid_activity_lo_user_id_a5f7f7", "uid_activity_logs_user_date"):
+        if index_name in index_names:
+            statements.append(f"ALTER TABLE `activity_logs` DROP INDEX `{index_name}`;")
+    for column_name in ("exercise_minutes", "water_ml", "steps"):
+        if column_name not in column_names:
+            statements.append(f"ALTER TABLE `activity_logs` ADD `{column_name}` INT;")
+    return "\n".join(statements)
 
 
 async def downgrade(db: BaseDBAsyncClient) -> str:
