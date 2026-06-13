@@ -6,6 +6,7 @@ from starlette import status
 from tortoise.contrib.test import TestCase
 
 from app.main import app
+from app.models.predictions import ModelVersion, PredictionResultItem
 from app.services.predictions import PredictionService
 
 
@@ -93,6 +94,9 @@ class TestPredictionFlowAPIs(TestCase):
             )
             history_response = await client.get("/api/v1/prediction-results", headers=headers)
 
+        model_versions = await ModelVersion.all()
+        result_items = await PredictionResultItem.filter(result_id=result_response.json()["data"]["result_id"]).all()
+
         assert survey_response.status_code == status.HTTP_201_CREATED
         assert task_response.status_code == status.HTTP_202_ACCEPTED
         assert task_response.json()["data"]["status"] == "PENDING"
@@ -114,3 +118,6 @@ class TestPredictionFlowAPIs(TestCase):
         assert history["items"][0]["result_id"] == result["result_id"]
         assert history["items"][0]["highest_risk_disease"] == "diabetes"
         assert history["items"][0]["feedback_submitted"] is True
+        assert {item.disease_code for item in model_versions} == {"DIABETES", "HYPERTENSION", "CKD"}
+        assert {item.model_version for item in result_items} == {"V8"}
+        assert all(item.model_version_ref_id is not None for item in result_items)

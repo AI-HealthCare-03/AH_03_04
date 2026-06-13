@@ -40,6 +40,8 @@ class JwtService:
 
         try:
             verified = token_class(token=token)
+            if verified.payload.get("type") != token_type:
+                raise TokenError("Token type mismatch.")
             return verified
         except ExpiredTokenError as err:
             raise HTTPException(status_code=401, detail=f"{token_type} token has expired.") from err

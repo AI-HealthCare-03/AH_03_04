@@ -45,10 +45,11 @@ class Config(BaseSettings):
 
     SECURITY_CSP: str = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://accounts.google.com; "
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-        "img-src 'self' data:; "
-        "connect-src 'self'; "
+        "img-src 'self' data: https://lh3.googleusercontent.com; "
+        "connect-src 'self' https://accounts.google.com https://www.googleapis.com; "
+        "frame-src https://accounts.google.com; "
         "frame-ancestors 'none'; "
         "object-src 'none'; "
         "base-uri 'self'"
@@ -60,7 +61,7 @@ class Config(BaseSettings):
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 7 * 24 * 60
     JWT_LEEWAY: int = 5
 
-    AUTH_RATE_LIMIT_MAX_FAILURES: int = 5
+    AUTH_RATE_LIMIT_MAX_FAILURES: int = 3
     AUTH_RATE_LIMIT_MAX_IP_FAILURES: int = 30
     AUTH_RATE_LIMIT_WINDOW_SECONDS: int = 60
 
@@ -68,6 +69,18 @@ class Config(BaseSettings):
     EMAIL_VERIFICATION_COOLDOWN_SECONDS: int = 60
     PASSWORD_RESET_EXPIRE_MINUTES: int = 30
     PASSWORD_RESET_COOLDOWN_SECONDS: int = 60
+
+    FRONTEND_BASE_URL: str = "http://localhost:5173"
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM_EMAIL: str = "no-reply@all4health.local"
+    SMTP_USE_TLS: bool = True
+
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_JWKS_URL: str = "https://www.googleapis.com/oauth2/v3/certs"
+    GOOGLE_ISSUERS: str = "https://accounts.google.com,accounts.google.com"
 
     ADVICE_LLM_ENABLED: bool = False
     REPORT_LLM_ENABLED: bool = False

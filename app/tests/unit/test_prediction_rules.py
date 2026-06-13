@@ -124,6 +124,23 @@ def test_ckd_risk_factors_use_renal_values_and_history():
     assert "당뇨 또는 고혈압 진단 이력이 입력되었습니다." in result
 
 
+def test_prediction_model_input_uses_latest_lipid_obesity_body_values():
+    raw = {"height": 165.0, "weight": 63.0, "bmi": 23.14, "waist_circumference": 78.0}
+    lipid = SimpleNamespace(
+        height_cm=Decimal("166.5"),
+        weight_kg=Decimal("67.2"),
+        bmi=Decimal("24.24"),
+        waist_circumference=Decimal("82.0"),
+    )
+
+    PredictionService._apply_lipid_obesity_model_overrides(raw, lipid)
+
+    assert raw["height"] == 166.5
+    assert raw["weight"] == 67.2
+    assert raw["bmi"] == 24.24
+    assert raw["waist_circumference"] == 82.0
+
+
 def test_health_score_penalizes_missing_prediction_and_metric_inputs():
     metric_assessment = MetricAssessmentResponse(
         dyslipidemia=MetricAssessmentItemResponse(status="UNAVAILABLE", reasons=[], missing_fields=[]),

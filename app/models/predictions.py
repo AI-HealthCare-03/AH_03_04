@@ -176,6 +176,9 @@ class ActivityLog(models.Model):
     alcohol_frequency = fields.IntField(null=True)
     alcohol_amount = fields.IntField(null=True)
     walking_days = fields.IntField(null=True)
+    steps = fields.IntField(null=True)
+    exercise_minutes = fields.IntField(null=True)
+    water_ml = fields.IntField(null=True)
     sedentary_hours = fields.DecimalField(max_digits=4, decimal_places=1, null=True)
     sleep_hours = fields.DecimalField(max_digits=3, decimal_places=1, null=True)
     stress_level = fields.IntField(null=True)
@@ -186,7 +189,6 @@ class ActivityLog(models.Model):
 
     class Meta:
         table = "activity_logs"
-        unique_together = (("user", "record_date"),)
 
 
 class ExerciseLog(models.Model):
@@ -248,6 +250,22 @@ class PredictionInputSnapshot(models.Model):
         table = "prediction_input_snapshots"
 
 
+class ModelVersion(models.Model):
+    id = fields.BigIntField(primary_key=True)
+    version = fields.CharField(max_length=20)
+    disease_code = fields.CharField(max_length=30)
+    model_task = fields.CharField(max_length=30, default="BINARY_CLASSIFICATION")
+    threshold = fields.DecimalField(max_digits=6, decimal_places=5, null=True)
+    is_active = fields.BooleanField(default=True)
+    metadata = fields.JSONField(default=dict)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "model_versions"
+        unique_together = (("version", "disease_code", "model_task"),)
+        indexes = (("disease_code", "is_active"),)
+
+
 class PredictionTask(models.Model):
     id = fields.BigIntField(primary_key=True)
     user = fields.ForeignKeyField("models.User", related_name="prediction_tasks", on_delete=fields.CASCADE)
@@ -286,6 +304,12 @@ class PredictionResultItem(models.Model):
     result = fields.ForeignKeyField("models.PredictionResult", related_name="items", on_delete=fields.CASCADE)
     disease_code = fields.CharField(max_length=30)
     model_version = fields.CharField(max_length=20, default="V8")
+    model_version_ref = fields.ForeignKeyField(
+        "models.ModelVersion",
+        related_name="prediction_result_items",
+        null=True,
+        on_delete=fields.SET_NULL,
+    )
     probability = fields.DecimalField(max_digits=7, decimal_places=6)
     threshold = fields.DecimalField(max_digits=6, decimal_places=5)
     threshold_profile = fields.CharField(max_length=15, default=PredictionMode.SCREENING.value)

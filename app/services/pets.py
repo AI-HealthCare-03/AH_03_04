@@ -24,6 +24,7 @@ from app.models.predictions import ActivityLog, ExerciseLog, VitalRecord
 from app.models.users import User
 
 DATE_KEY_FORMAT = "%Y%m%d"
+_CURRENT_PET_TYPE_UNSET = object()
 
 BASE_REWARD_TASKS = [
     ("VITAL_BP", "혈압 측정", 30),
@@ -34,58 +35,37 @@ BASE_REWARD_TASKS = [
 
 PET_CATALOG = [
     {
-        "catalog_id": "DOG_POMERANIAN",
+        "catalog_id": "PET_DOG",
         "pet_type": PetType.DOG,
-        "display_name": "포메라니안",
+        "display_name": "강아지",
         "required_streak_days": 0,
         "affinity_score": 3,
     },
     {
-        "catalog_id": "DOG_GOLDEN_RETRIEVER",
-        "pet_type": PetType.DOG,
-        "display_name": "골든 리트리버",
-        "required_streak_days": 3,
-        "affinity_score": 2,
-    },
-    {
-        "catalog_id": "DOG_BICHON_FRISE",
-        "pet_type": PetType.DOG,
-        "display_name": "비숑 프리제",
-        "required_streak_days": 7,
-        "affinity_score": 1,
-    },
-    {
-        "catalog_id": "DOG_MIXED",
-        "pet_type": PetType.DOG,
-        "display_name": "믹스견",
-        "required_streak_days": 30,
-        "affinity_score": 5,
-    },
-    {
-        "catalog_id": "CAT_KOREAN_SHORT_HAIR",
+        "catalog_id": "PET_CAT",
         "pet_type": PetType.CAT,
-        "display_name": "코리안 숏헤어",
+        "display_name": "고양이",
         "required_streak_days": 0,
         "affinity_score": 3,
     },
     {
-        "catalog_id": "CAT_RUSSIAN_BLUE",
-        "pet_type": PetType.CAT,
-        "display_name": "러시안 블루",
+        "catalog_id": "PET_RABBIT",
+        "pet_type": PetType.RABBIT,
+        "display_name": "토끼",
         "required_streak_days": 3,
         "affinity_score": 2,
     },
     {
-        "catalog_id": "CAT_PERSIAN",
-        "pet_type": PetType.CAT,
-        "display_name": "페르시안",
+        "catalog_id": "PET_CAPYBARA",
+        "pet_type": PetType.CAPYBARA,
+        "display_name": "카피바라",
         "required_streak_days": 7,
         "affinity_score": 1,
     },
     {
-        "catalog_id": "CAT_SIAMESE",
-        "pet_type": PetType.CAT,
-        "display_name": "샴",
+        "catalog_id": "PET_HAMSTER",
+        "pet_type": PetType.HAMSTER,
+        "display_name": "햄스터",
         "required_streak_days": 30,
         "affinity_score": 5,
     },
@@ -228,8 +208,10 @@ class VirtualPetService:
 
     async def get_pet_catalog(self, user: User, pet_type: PetType | None = None) -> PetCatalogResponse:
         current_streak_days = await self._current_challenge_streak_days(user.id, self._today())
+        current_pet = await VirtualPet.get_or_none(user_id=user.id)
+        current_pet_type = current_pet.pet_type if current_pet else None
         catalog_items = [item for item in PET_CATALOG if pet_type is None or item["pet_type"] == pet_type]
-        items = [self._to_catalog_item(item, current_streak_days) for item in catalog_items]
+        items = [self._to_catalog_item(item, current_streak_days, current_pet_type) for item in catalog_items]
         unlocked_count = sum(1 for item in items if item.is_unlocked)
         return PetCatalogResponse(
             summary=PetCatalogSummaryResponse(
@@ -324,9 +306,19 @@ class VirtualPetService:
         return streak
 
     @staticmethod
-    def _to_catalog_item(item: dict, current_streak_days: int) -> PetCatalogItemResponse:
+    def _to_catalog_item(
+        item: dict,
+        current_streak_days: int,
+        current_pet_type: PetType | None | object = _CURRENT_PET_TYPE_UNSET,
+    ) -> PetCatalogItemResponse:
         required_streak_days = item["required_streak_days"]
-        is_unlocked = current_streak_days >= required_streak_days
+        is_selected_pet = item["pet_type"] == current_pet_type
+        if current_pet_type is _CURRENT_PET_TYPE_UNSET:
+            is_unlocked = current_streak_days >= required_streak_days
+        elif required_streak_days <= 0:
+            is_unlocked = is_selected_pet
+        else:
+            is_unlocked = is_selected_pet or current_streak_days >= required_streak_days
         return PetCatalogItemResponse(
             catalog_id=item["catalog_id"],
             pet_type=item["pet_type"],
@@ -348,6 +340,12 @@ class VirtualPetService:
             return round(base_reward * 1.2)
         if pet_type == PetType.CAT and task_type == "DAILY_HEALTH_LOG":
             return round(base_reward * 1.2)
+        if pet_type == PetType.RABBIT and task_type == "VITAL_BP":
+            return round(base_reward * 1.2)
+        if pet_type == PetType.CAPYBARA and task_type == "WATER_CHALLENGE":
+            return round(base_reward * 1.2)
+        if pet_type == PetType.HAMSTER and task_type == "DAILY_HEALTH_LOG":
+            return round(base_reward * 1.1)
         return base_reward
 
     @staticmethod

@@ -1,49 +1,49 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { AppLayout } from "./layouts/AppLayout";
-import { AdviceHistoryPage } from "./pages/AdviceHistoryPage";
-import { AdviceTodayPage } from "./pages/AdviceTodayPage";
-import { TermsAgreementPage, EmailVerifyPage, PasswordResetPage, OnboardingCompletePage } from "./pages/AuthOnboardingPages";
-import { BadgePage } from "./pages/challenge/BadgePage";
-import { ChallengeDashboardPage } from "./pages/challenge/ChallengeDashboardPage";
-import { ChallengeDetailPage } from "./pages/challenge/ChallengeDetailPage";
-import { ChallengeListPage } from "./pages/challenge/ChallengeListPage";
-import { LeaderboardPage } from "./pages/challenge/LeaderboardPage";
-import { MyChallengesPage } from "./pages/challenge/MyChallengesPage";
+import { AdviceHistoryPage } from "./pages/1.home/AdviceHistoryPage";
+import { AdviceFeedbackPage } from "./pages/1.home/AdviceFeedbackPage";
+import { AdviceTodayPage } from "./pages/1.home/AdviceTodayPage";
+import { TermsAgreementPage, EmailVerifyPage, PasswordResetPage, OnboardingCompletePage } from "./pages/0.auth/AuthOnboardingPages";
+import { BadgePage } from "./pages/5.challenge/BadgePage";
+import { ChallengeDashboardPage } from "./pages/5.challenge/ChallengeDashboardPage";
+import { ChallengeDetailPage } from "./pages/5.challenge/ChallengeDetailPage";
+import { ChallengeListPage } from "./pages/5.challenge/ChallengeListPage";
+import { LeaderboardPage } from "./pages/5.challenge/LeaderboardPage";
+import { MyChallengesPage } from "./pages/5.challenge/MyChallengesPage";
 import { PublicLayout } from "./layouts/PublicLayout";
-import { FoodAnalyzePage } from "./pages/FoodAnalyzePage";
-import { FoodPage } from "./pages/FoodPage";
-import { HomePage } from "./pages/HomePage";
-import { ActivityPage } from "./pages/health/ActivityPage";
-import { ExercisePage } from "./pages/health/ExercisePage";
-import { GoalEditPage } from "./pages/health/GoalEditPage";
-import { GoalPage } from "./pages/health/GoalPage";
-import { HealthHubPage } from "./pages/health/HealthHubPage";
-import { HealthProfilePage } from "./pages/health/HealthProfilePage";
-import { VitalsDetailPage } from "./pages/health/VitalsDetailPage";
-import { VitalsInputPage } from "./pages/health/VitalsInputPage";
-import { VitalsListPage } from "./pages/health/VitalsListPage";
-import { HealthSurveyPage } from "./pages/HealthSurveyPage";
-import { LandingPage } from "./pages/LandingPage";
-import { LoginPage } from "./pages/LoginPage";
-import { NotificationsPage } from "./pages/NotificationsPage";
-import { PetEncyclopediaPage } from "./pages/PetEncyclopediaPage";
-import { PetPage } from "./pages/PetPage";
-import { PetSelectPage } from "./pages/PetSelectPage";
-import { PredictionFeedbackPage } from "./pages/PredictionFeedbackPage";
-import { PredictionHistoryPage } from "./pages/PredictionHistoryPage";
-import { PredictionProgressPage } from "./pages/PredictionProgressPage";
-import { PredictionRequestPage } from "./pages/PredictionRequestPage";
-import { PredictionResultPage } from "./pages/PredictionResultPage";
-import ReportDetailPage from "./pages/report/ReportDetailPage";
-import ReportExportPage from "./pages/report/ReportExportPage";
-import ReportListPage from "./pages/report/ReportListPage";
-import { SignUpPage } from "./pages/SignUpPage";
+import { FoodPage } from "./pages/3.food/FoodPage";
+import { HomePage } from "./pages/1.home/HomePage";
+import { ActivityPage } from "./pages/2.health/ActivityPage";
+import { ExercisePage } from "./pages/2.health/ExercisePage";
+import { GoalEditPage } from "./pages/2.health/GoalEditPage";
+import { GoalPage } from "./pages/2.health/GoalPage";
+import { HealthProfilePage } from "./pages/2.health/HealthProfilePage";
+import { VitalsDetailPage } from "./pages/2.health/VitalsDetailPage";
+import { VitalsInputPage } from "./pages/2.health/VitalsInputPage";
+import { VitalsListPage } from "./pages/2.health/VitalsListPage";
+import { HealthSurveyPage } from "./pages/0.auth/HealthSurveyPage";
+import { LandingPage } from "./pages/0.auth/LandingPage";
+import { LoginPage } from "./pages/0.auth/LoginPage";
+import { NotificationsPage } from "./pages/1.home/NotificationsPage";
+import { PetEncyclopediaPage } from "./pages/6.pet/PetEncyclopediaPage";
+import { PetPage } from "./pages/6.pet/PetPage";
+import { PetSelectPage } from "./pages/6.pet/PetSelectPage";
+import { PredictionFeedbackPage } from "./pages/1.home/PredictionFeedbackPage";
+import { PredictionHistoryPage } from "./pages/1.home/PredictionHistoryPage";
+import { PredictionProgressPage } from "./pages/1.home/PredictionProgressPage";
+import { PredictionRequestPage } from "./pages/1.home/PredictionRequestPage";
+import { PredictionResultPage } from "./pages/1.home/PredictionResultPage";
+import ReportDetailPage from "./pages/4.report/ReportDetailPage";
+import ReportExportPage from "./pages/4.report/ReportExportPage";
+import ReportListPage from "./pages/4.report/ReportListPage";
+import { SignUpPage } from "./pages/0.auth/SignUpPage";
 
 // ── front/mypage-management 브랜치에서 추가
-import { MyInfoPage } from "./pages/MyInfoPage";
-import { EditProfilePage } from "./pages/EditProfilePage";
-import { ChangePasswordPage, NotificationSettingsPage, TermsManagementPage, WithdrawalPage } from "./pages/MyPageSubPages";
+import { MyInfoPage } from "./pages/7.mypage/MyInfoPage";
+import { EditProfilePage } from "./pages/7.mypage/EditProfilePage";
+import { MyPagePasswordVerifyPage } from "./pages/7.mypage/MyPagePasswordVerifyPage";
+import { ChangePasswordPage, NotificationSettingsPage, TermsManagementPage, WithdrawalPage } from "./pages/7.mypage/MyPageSubPages";
 
 export type AppRoute =
   | "/"
@@ -58,11 +58,13 @@ export type AppRoute =
   | "/notifications"
   | "/advices/today"
   | "/advices/history"
+  | "/advices/feedback"
   | "/prediction/request"
   | "/prediction/progress"
   | "/prediction/result"
   | "/prediction/history"
   | "/prediction/feedback"
+  | "/mypage/verify"
   | "/mypage"
   | "/mypage/profile"
   | "/mypage/edit"
@@ -120,11 +122,13 @@ function normalizePath(pathname: string): AppRoute {
     "/notifications",
     "/advices/today",
     "/advices/history",
+    "/advices/feedback",
     "/prediction/request",
     "/prediction/progress",
     "/prediction/result",
     "/prediction/history",
     "/prediction/feedback",
+    "/mypage/verify",
     "/mypage",
     "/mypage/profile",
     "/mypage/edit",
@@ -162,12 +166,19 @@ function normalizePath(pathname: string): AppRoute {
 
 export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => normalizePath(window.location.pathname));
+  const [verifiedMypageRoute, setVerifiedMypageRoute] = useState<AppRoute | null>(null);
 
   useEffect(() => {
     const onPopState = () => setRoute(normalizePath(window.location.pathname));
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    if (!route.startsWith("/mypage")) {
+      setVerifiedMypageRoute(null);
+    }
+  }, [route]);
 
   const navigate = (nextRoute: AppRoute) => {
     const nextUrl =
@@ -179,6 +190,17 @@ export default function App() {
   };
 
   const page = useMemo(() => {
+    const isMypageProtectedRoute = route.startsWith("/mypage") && route !== "/mypage/verify";
+    if (isMypageProtectedRoute && verifiedMypageRoute !== route) {
+      return (
+        <MyPagePasswordVerifyPage
+          onNavigate={navigate}
+          onVerified={() => setVerifiedMypageRoute(route)}
+          targetRoute={route}
+        />
+      );
+    }
+
     switch (route) {
       case "/":
         return <LandingPage onNavigate={navigate} />;
@@ -203,7 +225,9 @@ export default function App() {
       case "/advices/today":
         return <AdviceTodayPage onNavigate={navigate} />;
       case "/advices/history":
-        return <AdviceHistoryPage />;
+        return <AdviceHistoryPage onNavigate={navigate} />;
+      case "/advices/feedback":
+        return <AdviceFeedbackPage onNavigate={navigate} />;
       case "/prediction/request":
         return <PredictionRequestPage onNavigate={navigate} />;
       case "/prediction/progress":
@@ -214,6 +238,14 @@ export default function App() {
         return <PredictionHistoryPage onNavigate={navigate} />;
       case "/prediction/feedback":
         return <PredictionFeedbackPage onNavigate={navigate} />;
+      case "/mypage/verify":
+        return (
+          <MyPagePasswordVerifyPage
+            onNavigate={navigate}
+            onVerified={() => setVerifiedMypageRoute("/mypage/profile")}
+            targetRoute="/mypage/profile"
+          />
+        );
       case "/mypage":
       case "/mypage/profile":
         return <MyInfoPage onNavigate={navigate} />;
@@ -228,7 +260,7 @@ export default function App() {
       case "/mypage/withdrawal":
         return <WithdrawalPage onNavigate={navigate} />;
       case "/health":
-        return <HealthHubPage onNavigate={navigate} />;
+        return <HealthProfilePage onNavigate={navigate} />;
       case "/health/goal":
         return <GoalPage onNavigate={navigate} />;
       case "/health/goal/edit":
@@ -248,7 +280,7 @@ export default function App() {
       case "/food":
         return <FoodPage onNavigate={navigate} />;
       case "/food/analyze":
-        return <FoodAnalyzePage onNavigate={navigate} />;
+        return <FoodPage onNavigate={navigate} view="input" />;
       case "/reports":
         return <ReportListPage onNavigate={navigate} />;
       case "/reports/detail":
@@ -276,7 +308,7 @@ export default function App() {
       default:
         return <HomePage onNavigate={navigate} />;
     }
-  }, [route]);
+  }, [route, verifiedMypageRoute]);
 
   if (publicRoutes.has(route)) {
     return <PublicLayout onNavigate={navigate}>{page}</PublicLayout>;

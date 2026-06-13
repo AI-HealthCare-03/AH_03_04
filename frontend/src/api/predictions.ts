@@ -52,6 +52,23 @@ export type HealthSurveyRecord = HealthSurveyResponse & {
   diagnosed_diseases: string[];
   medications: string[];
   last_checkup_period?: string | null;
+  fh_diabetes_father?: boolean;
+  fh_diabetes_mother?: boolean;
+  fh_diabetes_sibling?: boolean;
+  fh_hypertension_father?: boolean;
+  fh_hypertension_mother?: boolean;
+  fh_hypertension_sibling?: boolean;
+  family_history_ckd?: boolean;
+  smoking_status?: 0 | 1 | 2;
+  alcohol_frequency?: 0 | 1 | 3;
+  alcohol_amount?: number | null;
+  walking_days?: number | null;
+  sedentary_hours?: number | null;
+  exercise_frequency?: number;
+  physical_activity_min?: number | null;
+  sleep_hours?: number | null;
+  stress_level?: number | null;
+  diet_score?: number | null;
 };
 
 export type PredictionTaskCreatePayload = {
