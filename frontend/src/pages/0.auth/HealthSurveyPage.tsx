@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { AppRoute } from "../../App";
-import { getStoredAccessToken } from "../../api/auth";
+import { clearOnboardingAccessToken, getStoredAccessToken } from "../../api/auth";
 import { createHealthSurveyInput } from "../../api/predictions";
 import { getCurrentUser } from "../../api/users";
 import { Stepper } from "../../components/common/Stepper";
@@ -215,7 +215,10 @@ export function HealthSurveyPage({ onNavigate }: HealthSurveyPageProps) {
   const [surveyError, setSurveyError] = useState("");
 
   useEffect(() => {
-    const rawDraft = sessionStorage.getItem(ONBOARDING_PROFILE_KEY) ?? sessionStorage.getItem(SIGNUP_DRAFT_KEY);
+    const rawDraft =
+      sessionStorage.getItem(ONBOARDING_PROFILE_KEY) ??
+      localStorage.getItem(ONBOARDING_PROFILE_KEY) ??
+      sessionStorage.getItem(SIGNUP_DRAFT_KEY);
 
     if (rawDraft) {
       try {
@@ -579,6 +582,8 @@ export function HealthSurveyPage({ onNavigate }: HealthSurveyPageProps) {
         token,
       );
       sessionStorage.removeItem(ONBOARDING_PROFILE_KEY);
+      localStorage.removeItem(ONBOARDING_PROFILE_KEY);
+      clearOnboardingAccessToken();
       onNavigate("/onboarding-complete");
     } catch {
       setSurveyError("건강 설문 저장에 실패했습니다. 입력값을 확인해주세요.");

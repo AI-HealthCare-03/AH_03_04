@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { AppRoute } from "../../App";
+import { getTodayActivity, type DailyActivity } from "../../api/activity";
 import { getStoredAccessToken } from "../../api/auth";
 import { getHomeSummary, type HomeSummary } from "../../api/home";
 import { getCurrentUser } from "../../api/users";
@@ -8,40 +9,35 @@ import { ErrorState } from "../../components/common/ErrorState";
 import { LoadingState } from "../../components/common/LoadingState";
 import { localDotDateLabel, localKoreanDateLabel } from "../../utils/date";
 
-const fallbackHomeSummary: HomeSummary = {
+const emptyHomeSummary: HomeSummary = {
   today_score: {
-    score: 78,
-    status: "GOOD",
-    message: "양호",
-    calculation_basis: ["최근 7일 건강 기록", "챌린지 달성률", "예측 결과"],
+    score: null,
+    status: "NEEDS_INPUT",
+    message: "건강 기록 입력 필요",
+    calculation_basis: [],
   },
-  recent_prediction: {
-    result_id: 1,
-    overall_risk_level: "HIGH",
-    at_risk_diseases: ["고혈압"],
-    created_at: "2026-05-10T09:00:00",
-  },
+  recent_prediction: null,
   today_advice: {
-    advice_id: 1,
+    advice_id: null,
     title: "오늘의 조언",
-    content: "혈압과 LDL 콜레스테롤 관리가 필요해요. 오늘은 짠 음식을 줄이고 20분 산책을 해보세요.",
-    is_placeholder: false,
+    content: "건강 기록을 입력하면 오늘의 맞춤 조언을 확인할 수 있습니다.",
+    is_placeholder: true,
   },
   challenge_summary: {
-    active_count: 3,
-    completion_rate: 78,
-    message: "오늘 체크인할 챌린지가 있습니다.",
+    active_count: 0,
+    completion_rate: 0,
+    message: "참여 중인 챌린지가 없습니다.",
   },
   health_metric_summary: {
     dyslipidemia: {
-      status: "CAUTION",
-      label: "주의",
-      message: "혈당 관리가 필요합니다.",
+      status: "NEEDS_INPUT",
+      label: "미입력",
+      message: "건강 수치를 입력해 주세요.",
     },
     obesity: {
-      status: "GOOD",
-      label: "양호",
-      message: "운동 점수가 안정적입니다.",
+      status: "NEEDS_INPUT",
+      label: "미입력",
+      message: "신장/체중 정보를 입력해 주세요.",
     },
   },
   quick_record_status: {
@@ -73,8 +69,14 @@ function predictionLabel(summary: HomeSummary) {
   return `${disease} 위험도 ${prediction.overall_risk_level === "HIGH" ? "높음" : "확인 필요"}`;
 }
 
+function progressPercent(current: number | null | undefined, target: number) {
+  if (current == null || current <= 0) return 0;
+  return Math.min(100, Math.round((current / target) * 100));
+}
+
 export function HomePage({ onNavigate }: HomePageProps) {
-  const [summary, setSummary] = useState<HomeSummary>(fallbackHomeSummary);
+  const [summary, setSummary] = useState<HomeSummary>(emptyHomeSummary);
+  const [todayActivity, setTodayActivity] = useState<DailyActivity | null>(null);
   const [userName, setUserName] = useState("사용자");
   const [isLoading, setIsLoading] = useState(false);
   const [hasApiError, setHasApiError] = useState(false);
@@ -96,9 +98,20 @@ export function HomePage({ onNavigate }: HomePageProps) {
       })
       .catch(() => setHasApiError(true))
       .finally(() => setIsLoading(false));
+    getTodayActivity(token)
+      .then((response) => setTodayActivity(response.data))
+      .catch(() => setTodayActivity(null));
   }, []);
 
-  const recentScoreBars = useMemo(() => [42, 48, 36, 58, 50, 62, 78], []);
+  const recentScoreBars = useMemo(() => {
+    if (summary.today_score.score == null) return [];
+    const base = Math.max(20, Math.min(78, summary.today_score.score));
+    return [base - 18, base - 12, base - 20, base - 8, base - 14, base - 4, base].map((value) =>
+      Math.max(16, value),
+    );
+  }, [summary.today_score.score]);
+  const stepsProgress = progressPercent(todayActivity?.steps, 10000);
+  const waterProgress = progressPercent(todayActivity?.water_ml, 2000);
 
   if (isLoading) {
     return <LoadingState message="홈 데이터를 불러오는 중입니다." />;
@@ -120,7 +133,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
       {hasApiError && (
         <ErrorState
           title="백엔드 홈 데이터를 불러오지 못했습니다."
-          description="현재 화면은 와이어프레임 확인용 예시 데이터로 표시됩니다."
+          description="화면에는 예시값을 표시하지 않습니다. 잠시 후 다시 시도해주세요."
         />
       )}
 
@@ -142,15 +155,21 @@ export function HomePage({ onNavigate }: HomePageProps) {
             <span>/ 110점</span>
           </div>
           <div className="score-badges">
-            <span>B등급</span>
+            <span>{summary.today_score.score == null ? "미산정" : "건강 점수"}</span>
             <span>{summary.today_score.message}</span>
           </div>
-          <div className="score-delta">전일 대비 +3점 상승 ↑</div>
-          <div className="recent-bars" aria-label="최근 7일 점수">
-            {recentScoreBars.map((height, index) => (
-              <span key={index} style={{ height: `${height}px` }} />
-            ))}
+          <div className="score-delta">
+            {summary.today_score.score == null ? "건강 기록을 입력하면 점수를 산정합니다." : "최근 기록 기준 건강 점수입니다."}
           </div>
+          {recentScoreBars.length > 0 ? (
+            <div className="recent-bars" aria-label="최근 7일 점수">
+              {recentScoreBars.map((height, index) => (
+                <span key={index} style={{ height: `${height}px` }} />
+              ))}
+            </div>
+          ) : (
+            <div className="chart-placeholder compact">최근 점수 데이터 없음</div>
+          )}
         </article>
 
         <article className="dashboard-card recent-prediction-card">
@@ -158,7 +177,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
           <div className="prediction-summary-box">
             <p>{recentPredictionDateLabel(summary)} · 3대 만성질환</p>
             <strong>{predictionLabel(summary)}</strong>
-            <span>신뢰도 78% · 주요 요인: BMI, 수축기혈압, LDL</span>
+            <span>{summary.recent_prediction ? "최근 예측 결과를 확인해 주세요." : "예측을 요청하면 결과가 표시됩니다."}</span>
           </div>
           <button className="green-button" type="button" onClick={() => onNavigate?.("/prediction/request")}>
             새 예측 요청
@@ -218,22 +237,26 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </div>
         </div>
         <p className="mini-label">최근 건강 수치 최근 7일</p>
-        <div className="health-bars" aria-hidden="true">
-          {recentScoreBars.map((height, index) => (
-            <span key={index} style={{ height: `${height + 26}px` }} />
-          ))}
+          <div className="health-bars" aria-hidden="true">
+          {recentScoreBars.length > 0 ? (
+            recentScoreBars.map((height, index) => (
+              <span key={index} style={{ height: `${height + 26}px` }} />
+            ))
+          ) : (
+            <span style={{ height: "16px" }} />
+          )}
         </div>
         <div className="goal-lines">
           <div>
             <span>걸음수 목표</span>
-            <strong>85%</strong>
+            <strong>{todayActivity?.steps == null ? "미입력" : `${stepsProgress}%`}</strong>
           </div>
-          <progress max="100" value="85" />
+          <progress max="100" value={stepsProgress} />
           <div>
             <span>수분 섭취</span>
-            <strong>45%</strong>
+            <strong>{todayActivity?.water_ml == null ? "미입력" : `${waterProgress}%`}</strong>
           </div>
-          <progress max="100" value="45" />
+          <progress max="100" value={waterProgress} />
         </div>
       </section>
 

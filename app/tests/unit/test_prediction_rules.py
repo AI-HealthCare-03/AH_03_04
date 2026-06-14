@@ -158,6 +158,23 @@ def test_clinical_risk_override_marks_diabetes_fasting_glucose_as_high_risk():
     assert values["risk_level"] == "HIGH"
 
 
+def test_clinical_risk_override_does_not_mark_hypertension_by_bmi_only():
+    values = {
+        "probability": Decimal("0.030000"),
+        "threshold": Decimal("0.09600"),
+        "is_at_risk": False,
+        "risk_level": "LOW",
+        "message": "고혈압 위험 신호는 현재 기준에서 높지 않습니다.",
+        "risk_factors": ["BMI가 비만 범위입니다.", "허리둘레가 복부비만 기준 이상입니다."],
+    }
+
+    PredictionService._apply_clinical_risk_overrides("HYPERTENSION", values)
+
+    assert values["probability"] == Decimal("0.030000")
+    assert values["is_at_risk"] is False
+    assert values["risk_level"] == "LOW"
+
+
 def test_overall_risk_level_uses_highest_clinical_level():
     result = PredictionService._overall_risk_level(
         {

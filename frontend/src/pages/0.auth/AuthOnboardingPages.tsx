@@ -6,6 +6,7 @@ import {
   requestEmailVerification,
   requestPasswordReset,
   resetPassword,
+  storeOnboardingAccessToken,
   signup,
   storeAccessToken,
   verifyEmail,
@@ -25,6 +26,17 @@ const GOOGLE_SIGNUP_DRAFT_KEY = "auth.googleSignupDraft";
 const SIGNUP_ERROR_KEY = "auth.signupError";
 const ONBOARDING_PROFILE_KEY = "auth.onboardingProfile";
 const EMAIL_VERIFY_ADDRESS_KEY = "auth.emailVerifyAddress";
+
+function saveOnboardingProfile(profile: Pick<SignUpPayload, "birth_date" | "gender"> & { managed_diseases?: string[] }) {
+  const serialized = JSON.stringify(profile);
+  sessionStorage.setItem(ONBOARDING_PROFILE_KEY, serialized);
+  localStorage.setItem(ONBOARDING_PROFILE_KEY, serialized);
+}
+
+function saveEmailVerifyAddress(email: string) {
+  sessionStorage.setItem(EMAIL_VERIFY_ADDRESS_KEY, email);
+  localStorage.setItem(EMAIL_VERIFY_ADDRESS_KEY, email);
+}
 
 type SignupDraft = Partial<SignUpPayload> & {
   auth_provider?: "GOOGLE";
@@ -142,14 +154,11 @@ export function TermsAgreementPage({ onNavigate }: TermsAgreementPageProps) {
           throw error;
         }
         storeAccessToken(loginResponse.access_token, Boolean(parsedDraft.remember_me));
-        sessionStorage.setItem(
-          ONBOARDING_PROFILE_KEY,
-          JSON.stringify({
-            birth_date: payload.birth_date,
-            gender: payload.gender,
-            managed_diseases: _managedDiseases ?? [],
-          }),
-        );
+        saveOnboardingProfile({
+          birth_date: payload.birth_date,
+          gender: payload.gender,
+          managed_diseases: _managedDiseases ?? [],
+        });
         sessionStorage.removeItem(SIGNUP_DRAFT_KEY);
         sessionStorage.removeItem(GOOGLE_SIGNUP_DRAFT_KEY);
         onNavigate("/health-survey");
@@ -181,15 +190,13 @@ export function TermsAgreementPage({ onNavigate }: TermsAgreementPageProps) {
       }
 
       storeAccessToken(loginResponse.access_token);
-      sessionStorage.setItem(EMAIL_VERIFY_ADDRESS_KEY, payload.email);
-      sessionStorage.setItem(
-        ONBOARDING_PROFILE_KEY,
-        JSON.stringify({
-          birth_date: payload.birth_date,
-          gender: payload.gender,
-          managed_diseases: _managedDiseases ?? [],
-        }),
-      );
+      storeOnboardingAccessToken(loginResponse.access_token);
+      saveEmailVerifyAddress(payload.email);
+      saveOnboardingProfile({
+        birth_date: payload.birth_date,
+        gender: payload.gender,
+        managed_diseases: _managedDiseases ?? [],
+      });
       await requestEmailVerification();
       sessionStorage.removeItem(SIGNUP_DRAFT_KEY);
       onNavigate("/email-verify");
@@ -306,7 +313,7 @@ export function EmailVerifyPage({ onNavigate }: EmailVerifyPageProps) {
   const isLocalDev = import.meta.env.DEV;
 
   useEffect(() => {
-    setTargetEmail(sessionStorage.getItem(EMAIL_VERIFY_ADDRESS_KEY) ?? "");
+    setTargetEmail(sessionStorage.getItem(EMAIL_VERIFY_ADDRESS_KEY) ?? localStorage.getItem(EMAIL_VERIFY_ADDRESS_KEY) ?? "");
   }, []);
 
   useEffect(() => {
@@ -317,6 +324,7 @@ export function EmailVerifyPage({ onNavigate }: EmailVerifyPageProps) {
         setVerifyStatus("SUCCESS");
         setMessage("이메일 인증이 완료되었습니다.");
         sessionStorage.removeItem(EMAIL_VERIFY_ADDRESS_KEY);
+        localStorage.removeItem(EMAIL_VERIFY_ADDRESS_KEY);
       })
       .catch(() => {
         setVerifyStatus("FAILED");

@@ -1769,7 +1769,7 @@ class PredictionService:
             medium = any("BMI가 비만 범위" in factor or "당뇨 가족력" in factor for factor in factors)
         elif disease_code == "HYPERTENSION":
             high = any("혈압이 높은 범위" in factor for factor in factors)
-            medium = any("BMI가 비만 범위" in factor or "고혈압 가족력" in factor for factor in factors)
+            medium = any("고혈압 가족력" in factor for factor in factors)
         elif disease_code == "CKD":
             high = any("크레아티닌" in factor or "BUN" in factor or "소변 단백" in factor for factor in factors)
             medium = any("당뇨 또는 고혈압 진단 이력" in factor for factor in factors)
