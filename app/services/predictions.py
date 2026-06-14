@@ -1752,7 +1752,7 @@ class PredictionService:
                 }
             )
         try:
-            today = self._today()
+            today = HealthInputService._today()
             latest_bp = (
                 await VitalRecord.filter(user_id=user_id, record_date=today, measure_type__startswith="BP_")
                 .order_by("-measured_at", "-id")

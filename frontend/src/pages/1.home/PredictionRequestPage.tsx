@@ -6,14 +6,16 @@ import { getStoredAccessToken } from "../../api/auth";
 import { getExerciseLogs } from "../../api/exercise";
 import { getKidneyRecords } from "../../api/kidney";
 import { getLipidRecords } from "../../api/lipid";
-import { createPredictionTask, getLatestHealthSurveyInput } from "../../api/predictions";
+import { createPredictionTask, getLatestHealthSurveyInput, getPredictionResults } from "../../api/predictions";
 import { getVitals, type VitalRecord } from "../../api/vitals";
+import { localDateString } from "../../utils/date";
 
 type PredictionRequestPageProps = {
   onNavigate: (route: AppRoute) => void;
 };
 
 const diseases = ["당뇨병", "고혈압", "만성신장질환"];
+const DAILY_PREDICTION_LIMIT = 3;
 
 function latestByDate<T>(items: T[], getDate: (item: T) => string | undefined | null) {
   return [...items].sort((a, b) => String(getDate(b) ?? "").localeCompare(String(getDate(a) ?? "")))[0];
@@ -33,10 +35,11 @@ export function PredictionRequestPage({ onNavigate }: PredictionRequestPageProps
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDataLoading, setIsDataLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [remainingPredictionCount, setRemainingPredictionCount] = useState(DAILY_PREDICTION_LIMIT);
   const [dataRows, setDataRows] = useState([
     ["건강 프로필", "미입력"],
-    ["혈압 기록", "미입력"],
-    ["혈당 기록", "미입력"],
+    ["건강 수치 기록", "미입력"],
+    ["생활/운동 기록", "미입력"],
     ["운동 기록", "미입력"],
     ["생활 습관", "미입력"],
     ["가족력", "미입력"],
@@ -63,14 +66,19 @@ export function PredictionRequestPage({ onNavigate }: PredictionRequestPageProps
       getKidneyRecords({ limit: 100 }, token),
       getExerciseLogs({ limit: 100 }, token),
       getActivityLogs({ limit: 100 }, token),
+      getPredictionResults(100, token),
     ])
-      .then(([surveyRes, vitalsRes, lipidRes, kidneyRes, exerciseRes, activityRes]) => {
+      .then(([surveyRes, vitalsRes, lipidRes, kidneyRes, exerciseRes, activityRes, predictionRes]) => {
         const survey = surveyRes.status === "fulfilled" ? surveyRes.value.data : null;
         const vitals = vitalsRes.status === "fulfilled" ? vitalsRes.value.data.items : [];
         const lipids = lipidRes.status === "fulfilled" ? lipidRes.value.data : [];
         const kidneys = kidneyRes.status === "fulfilled" ? kidneyRes.value.data : [];
         const exercises = exerciseRes.status === "fulfilled" ? exerciseRes.value.data : null;
         const activities = activityRes.status === "fulfilled" ? activityRes.value.data : [];
+        const predictions = predictionRes.status === "fulfilled" ? predictionRes.value.data.items : [];
+        const today = localDateString();
+        const todayPredictionCount = predictions.filter((item) => item.created_at.slice(0, 10) === today).length;
+        setRemainingPredictionCount(Math.max(DAILY_PREDICTION_LIMIT - todayPredictionCount, 0));
         const latestBp = latestVital(vitals, (item) => item.measure_type.startsWith("BP_"));
         const latestGlucose = latestVital(vitals, (item) => item.measure_type.startsWith("GLUCOSE_"));
         const latestLipid = latestByDate(lipids, (item) => item.record_date || item.created_at);
@@ -105,6 +113,16 @@ export function PredictionRequestPage({ onNavigate }: PredictionRequestPageProps
           : latestLipid?.height || latestLipid?.weight
             ? `${latestLipid.height ?? "—"}cm / ${latestLipid.weight ?? "—"}kg`
             : "미입력";
+        const bpSummary = latestBp
+          ? `혈압 ${latestBp.sbp ?? latestBp.systolic}/${latestBp.dbp ?? latestBp.diastolic}`
+          : survey?.sbp != null && survey?.dbp != null
+            ? `설문 혈압 ${survey.sbp}/${survey.dbp}`
+            : "";
+        const glucoseSummary = latestGlucose
+          ? `혈당 ${latestGlucose.glucose ?? latestGlucose.glucose_value}mg/dL`
+          : survey?.glucose_fasting != null
+            ? `설문 혈당 ${survey.glucose_fasting}mg/dL`
+            : "";
         const exerciseSummary = latestExercise
           ? `최근 ${latestExercise.duration_minutes}분`
           : latestActivity?.exercise_minutes != null
@@ -124,24 +142,29 @@ export function PredictionRequestPage({ onNavigate }: PredictionRequestPageProps
               latestKidney.egfr != null ? `eGFR ${latestKidney.egfr}` : "",
             ].filter(Boolean).join(" / ") || formatCompleteWithDate(latestKidney.record_date || latestKidney.measured_date)
           : "미입력";
+        const healthMetricSummary = [
+          bpSummary,
+          glucoseSummary,
+          latestLipid ? "지질 입력됨" : "",
+          latestKidney ? "신장 입력됨" : "",
+        ].filter(Boolean).join(" / ") || "미입력";
+        const lifestyleSummary = [
+          exerciseSummary !== "미입력" ? exerciseSummary : "",
+          latestActivity?.steps != null ? `${latestActivity.steps}보` : "",
+          hasLifestyle ? "생활습관 입력됨" : "",
+        ].filter(Boolean).join(" / ") || "미입력";
 
         setDataRows([
           ["건강 프로필", profileSummary],
+          ["건강 수치 기록", healthMetricSummary],
+          ["생활/운동 기록", lifestyleSummary],
           [
             "혈압 기록",
-            latestBp
-              ? `최근 ${latestBp.sbp ?? latestBp.systolic}/${latestBp.dbp ?? latestBp.diastolic}`
-              : survey?.sbp != null && survey?.dbp != null
-                ? `설문 ${survey.sbp}/${survey.dbp}`
-                : "미입력",
+            bpSummary || "미입력",
           ],
           [
             "혈당 기록",
-            latestGlucose
-              ? `최근 ${latestGlucose.glucose ?? latestGlucose.glucose_value}mg/dL`
-              : survey?.glucose_fasting != null
-                ? `설문 ${survey.glucose_fasting}mg/dL`
-                : "미입력",
+            glucoseSummary || "미입력",
           ],
           ["운동 기록", exerciseSummary],
           ["생활 습관", hasLifestyle ? "완료" : "미입력"],
@@ -212,7 +235,7 @@ export function PredictionRequestPage({ onNavigate }: PredictionRequestPageProps
     <div className="page-stack">
       <section className="prediction-title-row">
         <h1>질환 예측 요청</h1>
-        <span className="usage-badge">오늘 예측 가능 횟수: 2/3회 남음</span>
+        <span className="usage-badge">오늘 예측 가능 횟수: {remainingPredictionCount}/3회 남음</span>
       </section>
       <div className="prediction-stepper">
         {["질환 선택", "데이터 확인", "예측 실행"].map((label, index) => (
