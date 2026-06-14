@@ -117,66 +117,14 @@ class HomeService:
         score = 100
         basis = ["건강 설문 입력 완료"]
 
-        if latest_prediction is not None:
-            at_risk_count = sum(1 for item in latest_prediction.items if item.is_at_risk)
-            if at_risk_count:
-                score -= min(at_risk_count * 15, 45)
-                basis.append(f"AI 예측 위험 신호 {at_risk_count}개")
-            else:
-                basis.append("최근 AI 예측 위험 신호 없음")
-        else:
-            score -= 10
-            basis.append("AI 예측 결과 없음")
-
-        for label, item in [
-            ("고지혈증", metric_assessment.dyslipidemia),
-            ("비만", metric_assessment.obesity),
+        for penalty, reasons in [
+            HomeService._prediction_score_adjustment(latest_prediction),
+            HomeService._metric_score_adjustment(metric_assessment),
+            HomeService._latest_vital_score_adjustment(latest_bp, latest_glucose),
+            HomeService._renal_score_adjustment(latest_renal),
         ]:
-            if item.status == "HIGH":
-                score -= 15
-                basis.append(f"{label} 수치 위험")
-            elif item.status == "CAUTION":
-                score -= 8
-                basis.append(f"{label} 수치 주의")
-            elif item.status == "UNAVAILABLE":
-                score -= 5
-                basis.append(f"{label} 수치 미입력")
-
-        if latest_bp is not None and latest_bp.sbp is not None and latest_bp.dbp is not None:
-            if latest_bp.sbp >= 140 or latest_bp.dbp >= 90:
-                score -= 15
-                basis.append("최근 혈압 수치 위험")
-            elif latest_bp.sbp >= 130 or latest_bp.dbp >= 80:
-                score -= 8
-                basis.append("최근 혈압 수치 주의")
-            else:
-                basis.append("최근 혈압 수치 정상")
-
-        if latest_glucose is not None and latest_glucose.glucose is not None:
-            if latest_glucose.glucose >= 200:
-                score -= 15
-                basis.append("최근 혈당 수치 위험")
-            elif latest_glucose.glucose >= 126:
-                score -= 12
-                basis.append("최근 혈당 수치 주의")
-            elif latest_glucose.glucose >= 100:
-                score -= 8
-                basis.append("최근 혈당 수치 경계")
-            else:
-                basis.append("최근 혈당 수치 정상")
-
-        if latest_renal is not None:
-            egfr = float(latest_renal.egfr) if latest_renal.egfr is not None else None
-            creatinine = float(latest_renal.creatinine) if latest_renal.creatinine is not None else None
-            if (
-                (egfr is not None and egfr < 60)
-                or (creatinine is not None and creatinine >= 1.3)
-                or latest_renal.urine_protein_pos
-            ):
-                score -= 15
-                basis.append("최근 신장 지표 위험")
-            elif egfr is not None or creatinine is not None or latest_renal.urine_protein_pos is not None:
-                basis.append("최근 신장 지표 입력 완료")
+            score -= penalty
+            basis.extend(reasons)
 
         score = max(score, 0)
         if score < 60:
@@ -195,6 +143,90 @@ class HomeService:
             message=message,
             calculation_basis=basis,
         )
+
+    @staticmethod
+    def _prediction_score_adjustment(latest_prediction: PredictionResult | None) -> tuple[int, list[str]]:
+        if latest_prediction is None:
+            return 10, ["AI 예측 결과 없음"]
+
+        at_risk_count = sum(1 for item in latest_prediction.items if item.is_at_risk)
+        if at_risk_count:
+            return min(at_risk_count * 15, 45), [f"AI 예측 위험 신호 {at_risk_count}개"]
+        return 0, ["최근 AI 예측 위험 신호 없음"]
+
+    @staticmethod
+    def _metric_score_adjustment(metric_assessment: MetricAssessmentResponse) -> tuple[int, list[str]]:
+        penalty = 0
+        reasons: list[str] = []
+        for label, item in [
+            ("고지혈증", metric_assessment.dyslipidemia),
+            ("비만", metric_assessment.obesity),
+        ]:
+            item_penalty, reason = HomeService._metric_item_adjustment(label, item.status)
+            penalty += item_penalty
+            if reason:
+                reasons.append(reason)
+        return penalty, reasons
+
+    @staticmethod
+    def _metric_item_adjustment(label: str, status: str) -> tuple[int, str | None]:
+        if status == "HIGH":
+            return 15, f"{label} 수치 위험"
+        if status == "CAUTION":
+            return 8, f"{label} 수치 주의"
+        if status == "UNAVAILABLE":
+            return 5, f"{label} 수치 미입력"
+        return 0, None
+
+    @staticmethod
+    def _latest_vital_score_adjustment(
+        latest_bp: VitalRecord | None,
+        latest_glucose: VitalRecord | None,
+    ) -> tuple[int, list[str]]:
+        bp_penalty, bp_reason = HomeService._bp_score_adjustment(latest_bp)
+        glucose_penalty, glucose_reason = HomeService._glucose_score_adjustment(latest_glucose)
+        reasons = [reason for reason in [bp_reason, glucose_reason] if reason]
+        return bp_penalty + glucose_penalty, reasons
+
+    @staticmethod
+    def _bp_score_adjustment(latest_bp: VitalRecord | None) -> tuple[int, str | None]:
+        if latest_bp is None or latest_bp.sbp is None or latest_bp.dbp is None:
+            return 0, None
+        if latest_bp.sbp >= 140 or latest_bp.dbp >= 90:
+            return 15, "최근 혈압 수치 위험"
+        if latest_bp.sbp >= 130 or latest_bp.dbp >= 80:
+            return 8, "최근 혈압 수치 주의"
+        return 0, "최근 혈압 수치 정상"
+
+    @staticmethod
+    def _glucose_score_adjustment(latest_glucose: VitalRecord | None) -> tuple[int, str | None]:
+        if latest_glucose is None or latest_glucose.glucose is None:
+            return 0, None
+        if latest_glucose.glucose >= 200:
+            return 15, "최근 혈당 수치 위험"
+        if latest_glucose.glucose >= 126:
+            return 12, "최근 혈당 수치 주의"
+        if latest_glucose.glucose >= 100:
+            return 8, "최근 혈당 수치 경계"
+        return 0, "최근 혈당 수치 정상"
+
+    @staticmethod
+    def _renal_score_adjustment(latest_renal: RenalRecord | None) -> tuple[int, list[str]]:
+        if latest_renal is None:
+            return 0, []
+
+        egfr = float(latest_renal.egfr) if latest_renal.egfr is not None else None
+        creatinine = float(latest_renal.creatinine) if latest_renal.creatinine is not None else None
+        has_risk = (
+            (egfr is not None and egfr < 60)
+            or (creatinine is not None and creatinine >= 1.3)
+            or latest_renal.urine_protein_pos
+        )
+        if has_risk:
+            return 15, ["최근 신장 지표 위험"]
+        if egfr is not None or creatinine is not None or latest_renal.urine_protein_pos is not None:
+            return 0, ["최근 신장 지표 입력 완료"]
+        return 0, []
 
     @staticmethod
     def _build_today_advice(
