@@ -234,7 +234,9 @@ class WeeklyReportService:
             "exercise_log_count": exercise_log_count,
             "meal_log_count": meal_log_count,
             "prediction_count": len(predictions),
-            "at_risk_prediction_count": sum(1 for prediction in predictions if WeeklyReportService._has_risk_signal(prediction)),
+            "at_risk_prediction_count": sum(
+                1 for prediction in predictions if WeeklyReportService._has_risk_signal(prediction)
+            ),
             "challenge_checkin_count": challenge_checkin_count,
         }
 
@@ -458,9 +460,11 @@ class WeeklyReportService:
         exact_previous = await WeeklyReport.get_or_none(user_id=user_id, week_start_date=previous_week_start)
         if exact_previous:
             return exact_previous
-        return await WeeklyReport.filter(user_id=user_id, week_start_date__lt=week_start).order_by(
-            "-week_start_date"
-        ).first()
+        return (
+            await WeeklyReport.filter(user_id=user_id, week_start_date__lt=week_start)
+            .order_by("-week_start_date")
+            .first()
+        )
 
     async def _refresh_trend_summary_if_needed(self, report: WeeklyReport, user_id: int) -> None:
         trend_summary = report.trend_summary or {}
