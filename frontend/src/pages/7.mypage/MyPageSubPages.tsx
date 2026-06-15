@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AppRoute } from "../../App";
 import { getStoredAccessToken } from "../../api/auth";
 import { ApiError } from "../../api/client";
+import { PasswordToggleButton } from "../../components/common/PasswordToggleButton";
 import {
   getNotificationPreferences,
   updateNotificationPreferences,
@@ -34,10 +35,7 @@ function PasswordField({ label, value, onChange }: { label: string; value: strin
       <div style={{ position: "relative" }}>
         <input type={show ? "text" : "password"} value={value} onChange={e => onChange(e.target.value)}
           style={{ width: "100%", height: 36, border: "1.5px solid #ddd", borderRadius: 5, padding: "0 36px 0 10px", fontSize: 12, outline: "none", boxSizing: "border-box" }} />
-        <button onClick={() => setShow(!show)}
-          style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#888" }}>
-          {show ? "🙈" : "👁"}
-        </button>
+        <PasswordToggleButton isVisible={show} onToggle={() => setShow(!show)} size={17} />
       </div>
     </div>
   );
@@ -574,10 +572,7 @@ export function WithdrawalPage({ onNavigate }: WithdrawalPageProps) {
           <input type={showPassword ? "text" : "password"} value={password} onChange={e => { setPassword(e.target.value); setPwError(""); }}
             placeholder="비밀번호를 입력하세요"
             style={{ width: "100%", height: 36, border: `1.5px solid ${pwError ? "#E24B4A" : "#ddd"}`, borderRadius: 5, padding: "0 36px 0 10px", fontSize: 12, outline: "none", boxSizing: "border-box" }} />
-          <button onClick={() => setShowPassword(!showPassword)}
-            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 14 }}>
-            {showPassword ? "🙈" : "👁"}
-          </button>
+          <PasswordToggleButton isVisible={showPassword} onToggle={() => setShowPassword(!showPassword)} size={17} />
         </div>
         {pwError && <p style={{ fontSize: 11, color: "#E24B4A", margin: "0 0 10px" }}>{pwError}</p>}
 

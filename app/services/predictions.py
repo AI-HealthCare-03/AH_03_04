@@ -120,6 +120,13 @@ DEFAULT_LIFESTYLE_GOAL = {
     "target_sleep_hours": None,
     "target_diet_score": None,
 }
+EXERCISE_MET_VALUES = {
+    "WALKING": Decimal("3.5"),
+    "RUNNING": Decimal("8.3"),
+    "CYCLING": Decimal("6.8"),
+    "SWIMMING": Decimal("8.0"),
+    "ETC": Decimal("4.0"),
+}
 
 
 def _calculate_age(birth_date: date, today: date | None = None) -> int:
@@ -598,12 +605,18 @@ class HealthInputService:
 
     async def create_exercise_log(self, user: User, data: ExerciseLogCreateRequest) -> OptionalRecordCreateResponse:
         await self._ensure_daily_health_record_limit(user.id, data.exercise_date)
+        calories_burned = await self._resolve_exercise_calories(
+            user=user,
+            exercise_type=data.exercise_type.value,
+            duration_minutes=data.duration_minutes,
+            calories_burned=data.calories_burned,
+        )
         record = await ExerciseLog.create(
             user=user,
             exercise_date=data.exercise_date,
             exercise_type=data.exercise_type.value,
             duration_minutes=data.duration_minutes,
-            calories_burned=data.calories_burned,
+            calories_burned=calories_burned,
             memo=data.memo,
         )
         return OptionalRecordCreateResponse(record_id=record.id, created_at=record.created_at)
@@ -656,6 +669,16 @@ class HealthInputService:
 
         if "exercise_type" in update_data:
             record.exercise_type = update_data["exercise_type"].value
+        if "exercise_type" in update_data or "duration_minutes" in update_data or "calories_burned" in update_data:
+            exercise_type = update_data.get("exercise_type", ExerciseType(record.exercise_type))
+            exercise_type_value = exercise_type.value if isinstance(exercise_type, ExerciseType) else str(exercise_type)
+            duration_minutes = update_data.get("duration_minutes", record.duration_minutes)
+            update_data["calories_burned"] = await self._resolve_exercise_calories(
+                user=user,
+                exercise_type=exercise_type_value,
+                duration_minutes=duration_minutes,
+                calories_burned=update_data.get("calories_burned"),
+            )
         for field in ["exercise_date", "duration_minutes", "calories_burned", "memo"]:
             if field in update_data:
                 setattr(record, field, update_data[field])
@@ -1050,6 +1073,31 @@ class HealthInputService:
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
+
+    @staticmethod
+    async def _resolve_exercise_calories(
+        user: User,
+        exercise_type: str,
+        duration_minutes: int,
+        calories_burned: int | None,
+    ) -> int:
+        if calories_burned is not None:
+            return calories_burned
+        weight_kg = await HealthInputService._exercise_weight_kg(user)
+        if weight_kg is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="소모 칼로리 자동 계산을 위해 건강 프로필에서 체중을 먼저 입력해 주세요.",
+            )
+        met = EXERCISE_MET_VALUES.get(exercise_type, EXERCISE_MET_VALUES["ETC"])
+        return int((met * weight_kg * Decimal(duration_minutes) / Decimal(60)).to_integral_value())
+
+    @staticmethod
+    async def _exercise_weight_kg(user: User) -> Decimal | None:
+        profile = await UserProfile.get_or_none(user_id=user.id)
+        if profile and profile.weight_kg is not None:
+            return Decimal(str(profile.weight_kg))
+        return None
 
     @staticmethod
     def _to_meal_log(record: MealLog) -> MealLogResponse:
@@ -1748,11 +1796,12 @@ class PredictionService:
     ) -> PredictionResultListItemResponse:
         disease_risks = self._to_disease_risks(result.items)
         highest_risk = max(disease_risks.items(), key=lambda item: item[1]["probability"], default=None)
+        overall_risk_level = self._overall_risk_level(disease_risks)
         return PredictionResultListItemResponse(
             result_id=result.id,
             prediction_mode=result.task.prediction_mode.value,
             created_at=result.created_at,
-            overall_risk_level=result.overall_risk_level,
+            overall_risk_level=overall_risk_level,
             highest_risk_disease=highest_risk[0] if highest_risk else None,
             highest_risk_probability=highest_risk[1]["probability"] if highest_risk else None,
             disease_risks=disease_risks,
@@ -1789,6 +1838,8 @@ class PredictionService:
         factors: list[str] = []
         if health.glucose_fasting is not None and health.glucose_fasting >= 126:
             factors.append("공복혈당이 당뇨 의심 기준 이상입니다.")
+        elif health.glucose_fasting is not None and health.glucose_fasting >= 100:
+            factors.append("공복혈당이 경계 범위입니다.")
         if float(health.bmi) >= 25:
             factors.append("BMI가 비만 범위입니다.")
         if health.fh_diabetes_father or health.fh_diabetes_mother or health.fh_diabetes_sibling:
@@ -2037,7 +2088,10 @@ class PredictionService:
         factors = values.get("risk_factors") or []
         if disease_code == "DIABETES":
             high = any("공복혈당이 당뇨 의심 기준 이상" in factor for factor in factors)
-            medium = any("BMI가 비만 범위" in factor or "당뇨 가족력" in factor for factor in factors)
+            medium = any(
+                "공복혈당이 경계 범위" in factor or "BMI가 비만 범위" in factor or "당뇨 가족력" in factor
+                for factor in factors
+            )
         elif disease_code == "HYPERTENSION":
             high = any(
                 "혈압이 높은 범위" in factor or "수축기 혈압" in factor or "이완기 혈압" in factor for factor in factors

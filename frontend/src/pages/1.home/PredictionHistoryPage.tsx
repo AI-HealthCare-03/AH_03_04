@@ -38,7 +38,8 @@ function buildResultSummary(item: PredictionResultListItem) {
     return "예측 결과 없음";
   }
   const disease = diseaseLabels[item.highest_risk_disease] ?? item.highest_risk_disease;
-  const risk = riskLevelLabels[item.overall_risk_level] ?? item.overall_risk_level;
+  const highestRiskLevel = item.disease_risks[item.highest_risk_disease]?.risk_level ?? item.overall_risk_level;
+  const risk = riskLevelLabels[highestRiskLevel] ?? highestRiskLevel;
   return `${disease} ${risk}`;
 }
 

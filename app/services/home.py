@@ -8,6 +8,7 @@ from app.dtos.home import (
     HomeRecentPredictionResponse,
     HomeSummaryResponse,
     HomeTodayAdviceResponse,
+    HomeVitalSummaryResponse,
 )
 from app.dtos.predictions import MetricAssessmentResponse
 from app.models.advices import LLMAdvice
@@ -32,6 +33,7 @@ DISEASE_LABELS = {
 
 class HomeService:
     async def get_summary(self, user: User) -> HomeSummaryResponse:
+        today = HealthInputService._today()
         latest_health = await ChronicHealthInput.filter(user_id=user.id).order_by("-created_at").first()
         latest_bp = (
             await VitalRecord.filter(user_id=user.id, measure_type__startswith="BP_")
@@ -39,7 +41,7 @@ class HomeService:
             .first()
         )
         latest_glucose = (
-            await VitalRecord.filter(user_id=user.id, measure_type__startswith="GLUCOSE_")
+            await VitalRecord.filter(user_id=user.id, measure_type="GLUCOSE_FASTING")
             .order_by("-measured_at", "-created_at")
             .first()
         )
@@ -48,7 +50,17 @@ class HomeService:
         latest_prediction = (
             await PredictionResult.filter(user_id=user.id).order_by("-created_at").prefetch_related("items").first()
         )
-        today_advice = await LLMAdvice.filter(user_id=user.id, advice_date=date.today()).order_by("-created_at").first()
+        today_bp = (
+            await VitalRecord.filter(user_id=user.id, record_date=today, measure_type__startswith="BP_")
+            .order_by("-measured_at", "-created_at")
+            .first()
+        )
+        today_glucose = (
+            await VitalRecord.filter(user_id=user.id, record_date=today, measure_type="GLUCOSE_FASTING")
+            .order_by("-measured_at", "-created_at")
+            .first()
+        )
+        today_advice = await LLMAdvice.filter(user_id=user.id, advice_date=today).order_by("-created_at").first()
         active_challenges = await ChallengeParticipation.filter(user_id=user.id, status="JOINED").prefetch_related(
             "challenge"
         )
@@ -66,12 +78,17 @@ class HomeService:
                 latest_renal=latest_renal,
             ),
             recent_prediction=self._build_recent_prediction(latest_prediction),
-            today_advice=self._build_today_advice(today_advice, latest_prediction),
+            today_advice=self._build_today_advice(
+                today_advice,
+                latest_prediction,
+                latest_today_record_at=self._latest_today_record_at(today_bp, today_glucose),
+            ),
             challenge_summary=self._build_challenge_summary(active_challenges),
             health_metric_summary=HomeHealthMetricSummaryResponse(
                 dyslipidemia=metric_assessment.dyslipidemia,
                 obesity=metric_assessment.obesity,
             ),
+            vital_summary=self._build_vital_summary(today_bp or latest_bp, today_glucose or latest_glucose, today),
             quick_record_status=HomeHealthRecordStatusResponse(
                 has_health_survey=latest_health is not None,
                 has_lipid_obesity_record=latest_lipid is not None,
@@ -82,6 +99,55 @@ class HomeService:
             ),
             unread_notification_count=unread_notification_count,
         )
+
+    @staticmethod
+    def _latest_today_record_at(*records: VitalRecord | None) -> date | None:
+        datetimes = [record.created_at for record in records if record is not None]
+        return max(datetimes).date() if datetimes else None
+
+    @staticmethod
+    def _build_vital_summary(
+        bp: VitalRecord | None,
+        glucose: VitalRecord | None,
+        today: date,
+    ) -> HomeVitalSummaryResponse:
+        bp_label, bp_status = HomeService._bp_label_status(bp)
+        glucose_label, glucose_status = HomeService._glucose_label_status(glucose)
+        return HomeVitalSummaryResponse(
+            blood_pressure_label=bp_label,
+            blood_pressure_status=bp_status,
+            blood_pressure_value=f"{bp.sbp}/{bp.dbp} mmHg"
+            if bp and bp.sbp is not None and bp.dbp is not None
+            else None,
+            glucose_label=glucose_label,
+            glucose_status=glucose_status,
+            glucose_value=f"{glucose.glucose} mg/dL" if glucose and glucose.glucose is not None else None,
+            has_today_health_record=bool(
+                (bp is not None and bp.record_date == today) or (glucose is not None and glucose.record_date == today)
+            ),
+        )
+
+    @staticmethod
+    def _bp_label_status(bp: VitalRecord | None) -> tuple[str, str]:
+        if bp is None or bp.sbp is None or bp.dbp is None:
+            return "미입력", "NEEDS_INPUT"
+        if bp.sbp >= 140 or bp.dbp >= 90:
+            return "위험", "HIGH"
+        if bp.sbp >= 130 or bp.dbp >= 80:
+            return "주의", "CAUTION"
+        return "정상", "NORMAL"
+
+    @staticmethod
+    def _glucose_label_status(glucose: VitalRecord | None) -> tuple[str, str]:
+        if glucose is None or glucose.glucose is None:
+            return "미입력", "NEEDS_INPUT"
+        if glucose.glucose >= 200:
+            return "위험", "HIGH"
+        if glucose.glucose >= 126:
+            return "주의", "CAUTION"
+        if glucose.glucose >= 100:
+            return "경계", "CAUTION"
+        return "정상", "NORMAL"
 
     @staticmethod
     def _build_recent_prediction(result: PredictionResult | None) -> HomeRecentPredictionResponse | None:
@@ -206,12 +272,12 @@ class HomeService:
         if latest_glucose is None or latest_glucose.glucose is None:
             return 0, None
         if latest_glucose.glucose >= 200:
-            return 15, "최근 혈당 수치 위험"
+            return 15, "최근 공복혈당 수치 위험"
         if latest_glucose.glucose >= 126:
-            return 12, "최근 혈당 수치 주의"
+            return 12, "최근 공복혈당 수치 주의"
         if latest_glucose.glucose >= 100:
-            return 8, "최근 혈당 수치 경계"
-        return 0, "최근 혈당 수치 정상"
+            return 8, "최근 공복혈당 수치 경계"
+        return 0, "최근 공복혈당 수치 정상"
 
     @staticmethod
     def _renal_score_adjustment(latest_renal: RenalRecord | None) -> tuple[int, list[str]]:
@@ -235,8 +301,15 @@ class HomeService:
     def _build_today_advice(
         advice: LLMAdvice | None,
         latest_prediction: PredictionResult | None,
+        latest_today_record_at: date | None = None,
     ) -> HomeTodayAdviceResponse:
         if advice is not None:
+            if latest_today_record_at is not None and advice.created_at.date() < latest_today_record_at:
+                return HomeTodayAdviceResponse(
+                    title="오늘의 건강 조언",
+                    content="오늘 입력한 건강 수치를 확인했습니다. 오늘의 조언 화면에서 새로 받기를 누르면 최신 기록 기준으로 조언을 받을 수 있습니다.",
+                    is_placeholder=True,
+                )
             return HomeTodayAdviceResponse(
                 advice_id=advice.id,
                 title="오늘의 건강 조언",

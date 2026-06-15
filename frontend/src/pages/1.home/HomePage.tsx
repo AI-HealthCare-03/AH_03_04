@@ -3,11 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import type { AppRoute } from "../../App";
 import { getTodayActivity, type DailyActivity } from "../../api/activity";
 import { getStoredAccessToken } from "../../api/auth";
+import { getBadges, getMyChallenges } from "../../api/challenges";
 import { getHomeSummary, type HomeSummary } from "../../api/home";
+import { getMyVirtualPet, type PetGrowthStage, type PetType } from "../../api/pets";
 import { getCurrentUser } from "../../api/users";
 import { ErrorState } from "../../components/common/ErrorState";
 import { LoadingState } from "../../components/common/LoadingState";
 import { localDotDateLabel, localKoreanDateLabel } from "../../utils/date";
+import { getPetImage } from "../../utils/petAssets";
 
 const emptyHomeSummary: HomeSummary = {
   today_score: {
@@ -39,6 +42,15 @@ const emptyHomeSummary: HomeSummary = {
       label: "미입력",
       message: "신장/체중 정보를 입력해 주세요.",
     },
+  },
+  vital_summary: {
+    blood_pressure_label: "미입력",
+    blood_pressure_status: "NEEDS_INPUT",
+    blood_pressure_value: null,
+    glucose_label: "미입력",
+    glucose_status: "NEEDS_INPUT",
+    glucose_value: null,
+    has_today_health_record: false,
   },
   quick_record_status: {
     has_health_survey: true,
@@ -74,10 +86,35 @@ function progressPercent(current: number | null | undefined, target: number) {
   return Math.min(100, Math.round((current / target) * 100));
 }
 
+function metricCardClass(status: string) {
+  if (status === "HIGH") return "metric-card metric-warning";
+  if (status === "CAUTION") return "metric-card metric-warning";
+  if (status === "NORMAL") return "metric-card metric-normal";
+  return "metric-card metric-good";
+}
+
+function bestBadgeIcon(
+  badges: Array<{ is_earned: boolean; icon_emoji?: string; progress_percent?: number }>,
+) {
+  const earned = badges.find((badge) => badge.is_earned && badge.icon_emoji);
+  if (earned?.icon_emoji) return earned.icon_emoji;
+  const next = [...badges].sort((a, b) => (b.progress_percent ?? 0) - (a.progress_percent ?? 0))[0];
+  return next?.icon_emoji ?? "🏅";
+}
+
 export function HomePage({ onNavigate }: HomePageProps) {
   const [summary, setSummary] = useState<HomeSummary>(emptyHomeSummary);
   const [todayActivity, setTodayActivity] = useState<DailyActivity | null>(null);
   const [userName, setUserName] = useState("사용자");
+  const [challengeIcon, setChallengeIcon] = useState("🏆");
+  const [badgeSummary, setBadgeSummary] = useState({ earned: 0, total: 0, icon: "🏅" });
+  const [petSummary, setPetSummary] = useState<{
+    hasPet: boolean;
+    name: string;
+    level: number;
+    health: number;
+    image: string | null;
+  }>({ hasPet: false, name: "미선택", level: 0, health: 0, image: null });
   const [isLoading, setIsLoading] = useState(false);
   const [hasApiError, setHasApiError] = useState(false);
 
@@ -101,6 +138,33 @@ export function HomePage({ onNavigate }: HomePageProps) {
     getTodayActivity(token)
       .then((response) => setTodayActivity(response.data))
       .catch(() => setTodayActivity(null));
+    getBadges(token)
+      .then((response) =>
+        setBadgeSummary({
+          earned: response.data.earned_count,
+          total: response.data.total_count,
+          icon: bestBadgeIcon(response.data.badges),
+        }),
+      )
+      .catch(() => setBadgeSummary({ earned: 0, total: 0, icon: "🏅" }));
+    getMyChallenges(token)
+      .then((response) => {
+        const active = response.data.in_progress[0];
+        setChallengeIcon(active?.challenge.icon_emoji ?? "🏆");
+      })
+      .catch(() => setChallengeIcon("🏆"));
+    getMyVirtualPet(token)
+      .then((response) => {
+        const pet = response.data.pet;
+        setPetSummary({
+          hasPet: response.data.has_pet,
+          name: pet?.pet_name ?? "미선택",
+          level: pet?.level ?? 0,
+          health: pet?.health_percent ?? 0,
+          image: pet ? getPetImage(pet.pet_type as PetType, pet.growth_stage as PetGrowthStage) : null,
+        });
+      })
+      .catch(() => setPetSummary({ hasPet: false, name: "미선택", level: 0, health: 0, image: null }));
   }, []);
 
   const recentScoreBars = useMemo(() => {
@@ -146,6 +210,29 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </button>
         </section>
       )}
+
+      <section className="home-summary-strip">
+        <button type="button" className="home-summary-card" onClick={() => onNavigate?.("/challenges")}>
+          <span className="home-summary-visual" aria-hidden="true">{challengeIcon}</span>
+          <span className="home-summary-meta">진행 중 챌린지</span>
+          <strong>{summary.challenge_summary.active_count}개</strong>
+          <small>달성률 {Math.round(summary.challenge_summary.completion_rate)}%</small>
+        </button>
+        <button type="button" className="home-summary-card" onClick={() => onNavigate?.("/challenges/badges")}>
+          <span className="home-summary-visual" aria-hidden="true">{badgeSummary.icon}</span>
+          <span className="home-summary-meta">획득 뱃지</span>
+          <strong>{badgeSummary.earned}개</strong>
+          <small>전체 {badgeSummary.total}개 중 획득</small>
+        </button>
+        <button type="button" className="home-summary-card" onClick={() => onNavigate?.(petSummary.hasPet ? "/pet" : "/pet/select")}>
+          <span className="home-summary-visual home-summary-pet" aria-hidden="true">
+            {petSummary.image ? <img src={petSummary.image} alt="" /> : "🐾"}
+          </span>
+          <span className="home-summary-meta">나만의 펫</span>
+          <strong>{petSummary.hasPet ? `${petSummary.name} Lv.${petSummary.level}` : "선택 필요"}</strong>
+          <small>{petSummary.hasPet ? `건강도 ${petSummary.health}%` : "펫을 선택해 보세요"}</small>
+        </button>
+      </section>
 
       <section className="home-main-grid">
         <article className="dashboard-card health-score-card">
@@ -223,17 +310,20 @@ export function HomePage({ onNavigate }: HomePageProps) {
           <span>{localDotDateLabel()}</span>
         </div>
         <div className="metric-status-grid">
-          <div className="metric-card metric-normal">
+          <div className={metricCardClass(summary.vital_summary.blood_pressure_status)}>
             <span>혈압 지수</span>
-            <strong>정상</strong>
+            <strong>{summary.vital_summary.blood_pressure_label}</strong>
+            <small>{summary.vital_summary.blood_pressure_value ?? "오늘 기록 없음"}</small>
           </div>
-          <div className="metric-card metric-warning">
-            <span>혈당 관리</span>
-            <strong>{summary.health_metric_summary.dyslipidemia.label}</strong>
+          <div className={metricCardClass(summary.vital_summary.glucose_status)}>
+            <span>공복혈당 관리</span>
+            <strong>{summary.vital_summary.glucose_label}</strong>
+            <small>{summary.vital_summary.glucose_value ?? "오늘 기록 없음"}</small>
           </div>
           <div className="metric-card metric-good">
-            <span>운동 점수</span>
+            <span>지질/비만</span>
             <strong>{summary.health_metric_summary.obesity.label}</strong>
+            <small>{summary.health_metric_summary.dyslipidemia.label}</small>
           </div>
         </div>
         <p className="mini-label">최근 건강 수치 최근 7일</p>

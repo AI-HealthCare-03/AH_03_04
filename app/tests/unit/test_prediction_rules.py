@@ -30,7 +30,7 @@ def test_prediction_result_list_item_uses_highest_probability_and_feedback_state
         id=3,
         task=SimpleNamespace(prediction_mode=PredictionMode.SCREENING),
         created_at=datetime(2026, 6, 9, 12, 0, 0),
-        overall_risk_level="HIGH",
+        overall_risk_level="LOW",
         input_completeness={"used_default_values": False, "missing_fields": [], "message": "입력값 반영"},
         items=[
             SimpleNamespace(
@@ -57,6 +57,7 @@ def test_prediction_result_list_item_uses_highest_probability_and_feedback_state
     item = PredictionService()._to_result_list_item(result, feedback_result_ids={3})
 
     assert item.result_id == 3
+    assert item.overall_risk_level == "HIGH"
     assert item.highest_risk_disease == "diabetes"
     assert item.highest_risk_probability == 0.65
     assert item.feedback_submitted is True
@@ -112,6 +113,24 @@ def test_diabetes_risk_factors_use_input_values():
     assert "주간 걷기 일수가 낮은 편입니다." in result
 
 
+def test_diabetes_risk_factors_mark_borderline_fasting_glucose():
+    health = SimpleNamespace(
+        glucose_fasting=120,
+        bmi=22,
+        waist_circumference=80,
+        gender=Gender.FEMALE,
+        fh_diabetes_father=False,
+        fh_diabetes_mother=False,
+        fh_diabetes_sibling=False,
+    )
+    lifestyle = SimpleNamespace(walking_days=5)
+
+    result = PredictionService._diabetes_risk_factors(health, lifestyle, lipid=None)
+
+    assert "공복혈당이 경계 범위입니다." in result
+    assert "공복혈당이 당뇨 의심 기준 이상입니다." not in result
+
+
 def test_ckd_risk_factors_use_renal_values_and_history():
     health = SimpleNamespace(diagnosed_diseases=["DIABETES"])
     renal = SimpleNamespace(creatinine=1.4, bun=22, urine_protein_pos=True)
@@ -156,6 +175,23 @@ def test_clinical_risk_override_marks_diabetes_fasting_glucose_as_high_risk():
     assert values["probability"] == Decimal("0.65")
     assert values["is_at_risk"] is True
     assert values["risk_level"] == "HIGH"
+
+
+def test_clinical_risk_override_marks_borderline_fasting_glucose_as_medium_risk():
+    values = {
+        "probability": Decimal("0.009000"),
+        "threshold": Decimal("0.05500"),
+        "is_at_risk": False,
+        "risk_level": "LOW",
+        "message": "당뇨 위험 신호는 현재 기준에서 높지 않습니다.",
+        "risk_factors": ["공복혈당이 경계 범위입니다."],
+    }
+
+    PredictionService._apply_clinical_risk_overrides("DIABETES", values)
+
+    assert values["probability"] == Decimal("0.35")
+    assert values["is_at_risk"] is True
+    assert values["risk_level"] == "MEDIUM"
 
 
 def test_clinical_risk_override_does_not_mark_hypertension_by_bmi_only():

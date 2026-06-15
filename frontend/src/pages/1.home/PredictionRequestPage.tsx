@@ -80,7 +80,7 @@ export function PredictionRequestPage({ onNavigate }: PredictionRequestPageProps
         const todayPredictionCount = predictions.filter((item) => item.created_at.slice(0, 10) === today).length;
         setRemainingPredictionCount(Math.max(DAILY_PREDICTION_LIMIT - todayPredictionCount, 0));
         const latestBp = latestVital(vitals, (item) => item.measure_type.startsWith("BP_"));
-        const latestGlucose = latestVital(vitals, (item) => item.measure_type.startsWith("GLUCOSE_"));
+        const latestGlucose = latestVital(vitals, (item) => item.measure_type === "GLUCOSE_FASTING");
         const latestLipid = latestByDate(lipids, (item) => item.record_date || item.created_at);
         const latestKidney = latestByDate(kidneys, (item) => item.record_date || item.measured_date || item.created_at);
         const latestExercise = latestByDate(exercises?.items ?? [], (item) => item.exercise_date || item.created_at);
@@ -119,9 +119,9 @@ export function PredictionRequestPage({ onNavigate }: PredictionRequestPageProps
             ? `설문 혈압 ${survey.sbp}/${survey.dbp}`
             : "";
         const glucoseSummary = latestGlucose
-          ? `혈당 ${latestGlucose.glucose ?? latestGlucose.glucose_value}mg/dL`
+          ? `공복혈당 ${latestGlucose.glucose ?? latestGlucose.glucose_value}mg/dL`
           : survey?.glucose_fasting != null
-            ? `설문 혈당 ${survey.glucose_fasting}mg/dL`
+            ? `설문 공복혈당 ${survey.glucose_fasting}mg/dL`
             : "";
         const exerciseSummary = latestExercise
           ? `최근 ${latestExercise.duration_minutes}분`

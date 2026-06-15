@@ -328,7 +328,7 @@ export function HealthSurveyPage({ onNavigate }: HealthSurveyPageProps) {
   if (surveyStep === 1) {
     const MED_OPTIONS = [
       { name: "고혈압 약", color: "#df8aac", bg: "#fce4ec" },
-      { name: "당뇨 약", color: "#f57f17", bg: "#fff9c4" },
+      { name: "당뇨 약", color: "#fdb42f", bg: "#fff9c4" },
       { name: "복용중인 약 없음", color: "#555", bg: "#fafafa" },
     ];
     const toggleItem = (arr: string[], item: string, setFn: (v: string[]) => void) => {

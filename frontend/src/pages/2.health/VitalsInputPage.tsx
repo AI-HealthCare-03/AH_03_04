@@ -8,12 +8,14 @@ import {
   EXERCISE_TYPE_LABELS,
   EXERCISE_TYPES,
   createExerciseLog,
+  estimateCaloriesBurned,
   getExerciseLogs,
   updateExerciseLog,
   type CreateExerciseBody,
   type ExerciseLog,
   type ExerciseTypeCode,
 } from "../../api/exercise";
+import { getCurrentUser } from "../../api/users";
 import { createKidneyRecord, getKidneyRecords, updateKidneyRecord, type CreateKidneyBody, type KidneyRecord } from "../../api/kidney";
 import { createLipidRecord, getLipidRecords, updateLipidRecord, type CreateLipidBody, type LipidRecord } from "../../api/lipid";
 import { createVital, getVitals, updateVital, type CreateVitalBody, type MeasureType, type VitalRecord } from "../../api/vitals";
@@ -134,7 +136,8 @@ export function VitalsInputPage({ onNavigate }: VitalsInputPageProps) {
       sessionStorage.removeItem("editingVitalData");
       refreshTodayRecordCount();
       onNavigate?.("/health/vitals");
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message === "WEIGHT_REQUIRED") return;
       alert("저장에 실패했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.");
     } finally {
       setIsSavingAll(false);
@@ -811,6 +814,10 @@ function ExerciseInputPanel({ onNavigate, onSaveAll, isSavingAll }, ref) {
   const [isSaving, setIsSaving] = useState(false);
   const [editingExercise, setEditingExercise] = useState<ExerciseLog | null>(null);
   const [hasEdited, setHasEdited] = useState(false);
+  const [weightKg, setWeightKg] = useState<number | null>(null);
+  const [hasWeightProfile, setHasWeightProfile] = useState(true);
+  const [isCaloriesManual, setIsCaloriesManual] = useState(false);
+  const [showWeightRequiredModal, setShowWeightRequiredModal] = useState(false);
 
   useEffect(() => {
     const record = readEditingRecord<ExerciseLog>("EXERCISE");
@@ -820,14 +827,37 @@ function ExerciseInputPanel({ onNavigate, onSaveAll, isSavingAll }, ref) {
     setDate(record.exercise_date ?? todayStr());
     setMinutes(record.duration_minutes);
     setCalories(String(record.calories_burned ?? ""));
+    setIsCaloriesManual(record.calories_burned != null);
     setMemo(record.memo ?? "");
   }, []);
+
+  useEffect(() => {
+    getCurrentUser(getStoredAccessToken())
+      .then((user) => {
+        setWeightKg(user.weight);
+        setHasWeightProfile(user.weight != null);
+      })
+      .catch(() => {
+        setWeightKg(null);
+        setHasWeightProfile(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (isCaloriesManual) return;
+    const estimated = estimateCaloriesBurned(selectedType, minutes, weightKg);
+    setCalories(estimated === null ? "" : String(estimated));
+  }, [isCaloriesManual, minutes, selectedType, weightKg]);
 
   const hasInput = () => Boolean(editingExercise || hasEdited || calories || memo.trim());
 
   async function saveDraft() {
     const token = getStoredAccessToken();
     if (!hasInput()) return false;
+    if (!calories && !hasWeightProfile) {
+      setShowWeightRequiredModal(true);
+      throw new Error("WEIGHT_REQUIRED");
+    }
     const body: CreateExerciseBody = {
       exercise_type: selectedType,
       duration_minutes: minutes,
@@ -883,8 +913,22 @@ function ExerciseInputPanel({ onNavigate, onSaveAll, isSavingAll }, ref) {
         </div>
       </section>
       <section className="dashboard-card vi-section">
-        <h2>소모 칼로리 (선택)</h2>
-        <input type="number" min={0} className="vi-date-input" placeholder="예: 180" value={calories} onChange={(e) => { setCalories(nonNegativeValue(e.target.value)); setHasEdited(true); }} />
+        <h2>예상 소모 칼로리</h2>
+        <input
+          type="number"
+          min={0}
+          className="vi-date-input"
+          placeholder="내 체중·운동종류·운동시간 기준 자동 계산"
+          value={calories}
+          onChange={(e) => {
+            setCalories(nonNegativeValue(e.target.value));
+            setIsCaloriesManual(true);
+            setHasEdited(true);
+          }}
+        />
+        <p className="goal-section-note">
+          * MET 기준 예상값입니다. 자동 계산에는 건강 프로필의 체중이 필요합니다.
+        </p>
       </section>
       <section className="dashboard-card vi-section">
         <h2>운동 메모 (선택)</h2>
@@ -894,6 +938,22 @@ function ExerciseInputPanel({ onNavigate, onSaveAll, isSavingAll }, ref) {
         <button type="button" className="wide-subtle-button" onClick={() => onNavigate?.("/health/vitals")}>취소</button>
         <button type="button" className="green-button" onClick={onSaveAll} disabled={isSaving || isSavingAll}>{isSaving || isSavingAll ? "저장 중..." : "전체 저장"}</button>
       </div>
+      {showWeightRequiredModal && (
+        <div className="app-modal-backdrop" role="dialog" aria-modal="true">
+          <div className="app-modal-card">
+            <h2>체중 입력이 필요합니다</h2>
+            <p>운동 종류와 시간을 기준으로 예상 소모 칼로리를 계산하려면 건강 프로필에 체중이 필요합니다.</p>
+            <div className="button-row">
+              <button type="button" className="wide-subtle-button" onClick={() => setShowWeightRequiredModal(false)}>
+                닫기
+              </button>
+              <button type="button" className="green-button" onClick={() => onNavigate?.("/health/profile")}>
+                건강 프로필로 이동
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

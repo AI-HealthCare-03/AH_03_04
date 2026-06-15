@@ -30,15 +30,21 @@ MAX_DAILY_MANUAL_REGENERATIONS = 2
 
 class AdviceService:
     async def get_today(self, user: User) -> DailyAdviceResponse:
-        today = date.today()
+        today = HealthInputService._today()
         advice = await self._latest_advice(user.id, today)
         if advice is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="오늘 생성된 조언이 없습니다.")
+        latest_record_at = await self._latest_today_record_at(user.id, today)
+        if latest_record_at is not None and advice.created_at < latest_record_at:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="오늘 건강 기록이 갱신되었습니다. 조언을 새로 받아보세요.",
+            )
         remaining = await self._remaining_manual_regeneration_count(user.id, today)
         return self._to_response(advice, generated=False, remaining_regeneration_count=remaining)
 
     async def generate_today(self, user: User, data: AdviceGenerateRequest) -> DailyAdviceResponse:
-        today = date.today()
+        today = HealthInputService._today()
         if data.trigger_type == AdviceTriggerType.AUTO:
             existing = await LLMAdvice.filter(
                 user_id=user.id,
@@ -131,7 +137,7 @@ class AdviceService:
             await PredictionResult.filter(user_id=user.id).order_by("-created_at").prefetch_related("items").first()
         )
         metric_assessment = await HealthInputService().get_metric_assessments(user)
-        today = date.today()
+        today = HealthInputService._today()
         today_vitals = await VitalRecord.filter(user_id=user.id, record_date=today).order_by("-measured_at", "-id")
         today_activity = await ActivityLog.filter(user_id=user.id, record_date=today).order_by("-created_at", "-id")
         today_exercises = await ExerciseLog.filter(user_id=user.id, exercise_date=today).order_by("-created_at", "-id")
@@ -211,7 +217,9 @@ class AdviceService:
             parts.append("지질 수치 관리를 위해 튀김·가공식품 섭취를 줄여보세요.")
 
         today_records = context.get("today_records", {})
-        if not today_records.get("vitals"):
+        if today_records.get("vitals"):
+            parts.append("오늘 입력한 혈압·혈당 기록을 기준으로 수치 변화를 확인했습니다.")
+        else:
             parts.append("오늘 혈압 또는 혈당 기록을 입력하면 조언 정확도가 높아집니다.")
         if today_records.get("exercise_minutes", 0) < 30:
             parts.append("오늘은 30분 걷기나 가벼운 운동을 우선 목표로 잡아보세요.")
@@ -224,6 +232,32 @@ class AdviceService:
 
         parts.append("본 조언은 진단이 아니며, 증상이나 우려가 있으면 전문의와 상담하세요.")
         return AdviceService._limit_text(" ".join(parts), MAX_ADVICE_LENGTH)
+
+    @staticmethod
+    async def _latest_today_record_at(user_id: int, today: date):
+        latest_vital = (
+            await VitalRecord.filter(user_id=user_id, record_date=today).order_by("-updated_at", "-created_at").first()
+        )
+        latest_activity = (
+            await ActivityLog.filter(user_id=user_id, record_date=today).order_by("-updated_at", "-created_at").first()
+        )
+        latest_exercise = (
+            await ExerciseLog.filter(user_id=user_id, exercise_date=today)
+            .order_by("-updated_at", "-created_at")
+            .first()
+        )
+        latest_meal = await MealLog.filter(user_id=user_id, meal_date=today).order_by("-created_at").first()
+        datetimes = [
+            value
+            for value in [
+                latest_vital.updated_at if latest_vital else None,
+                latest_activity.updated_at if latest_activity else None,
+                latest_exercise.updated_at if latest_exercise else None,
+                latest_meal.created_at if latest_meal else None,
+            ]
+            if value is not None
+        ]
+        return max(datetimes) if datetimes else None
 
     @staticmethod
     def _shingles_vaccination_advice(context: dict[str, Any]) -> str | None:

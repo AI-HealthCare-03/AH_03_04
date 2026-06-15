@@ -15,6 +15,7 @@ import {
 } from "../../api/auth";
 import { ApiError } from "../../api/client";
 import { getPolicyDocument, type ConsentType } from "../../api/users";
+import { PasswordToggleButton } from "../../components/common/PasswordToggleButton";
 import { Stepper } from "../../components/common/Stepper";
 import { icons } from "../../utils/iconAssets";
 
@@ -651,7 +652,7 @@ export function PasswordResetPage({ onNavigate }: PasswordResetPageProps) {
               <div style={{ position: "relative" }}>
                 <input type={showPw ? "text" : "password"} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="영문+숫자+특수문자 조합 8자 이상"
                   style={{ width: "100%", height: 34, border: `1.5px solid ${passwordError ? "#E24B4A" : "#ddd"}`, borderRadius: 5, padding: "0 36px 0 10px", fontSize: 17, boxSizing: "border-box", outline: "none" }} />
-                <button onClick={() => setShowPw(!showPw)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 15 }}>{showPw ? "🙈" : "👁"}</button>
+                <PasswordToggleButton isVisible={showPw} onToggle={() => setShowPw(!showPw)} />
               </div>
               {passwordError && <p style={{ fontSize: 17, color: "#E24B4A", margin: "4px 0 0" }}>{passwordError}</p>}
             </div>
@@ -660,7 +661,7 @@ export function PasswordResetPage({ onNavigate }: PasswordResetPageProps) {
               <div style={{ position: "relative" }}>
                 <input type={showConfirm ? "text" : "password"} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="동일하게 입력"
                   style={{ width: "100%", height: 34, border: `1.5px solid ${pwMismatch ? "#E24B4A" : "#ddd"}`, borderRadius: 5, padding: "0 36px 0 10px", fontSize: 17, boxSizing: "border-box", outline: "none" }} />
-                <button onClick={() => setShowConfirm(!showConfirm)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 15 }}>{showConfirm ? "🙈" : "👁"}</button>
+                <PasswordToggleButton isVisible={showConfirm} onToggle={() => setShowConfirm(!showConfirm)} />
               </div>
               {pwMismatch && <p style={{ fontSize: 17, color: "#E24B4A", margin: "4px 0 0" }}>비밀번호가 일치하지 않습니다.</p>}
             </div>

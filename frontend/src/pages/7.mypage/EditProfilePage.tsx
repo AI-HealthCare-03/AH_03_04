@@ -3,6 +3,7 @@ import type { ChangeEvent } from "react";
 import type { AppRoute } from "../../App";
 import { getStoredAccessToken } from "../../api/auth";
 import { getCurrentUser, updateCurrentUser } from "../../api/users";
+import { getStoredProfileImage, resizeProfileImageFile, setStoredProfileImage } from "../../utils/profileImage";
 
 interface EditProfilePageProps {
   onNavigate: (route: AppRoute) => void;
@@ -25,7 +26,9 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
   const [phone, setPhone] = useState("");
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
   const [profileImagePreviewUrl, setProfileImagePreviewUrl] = useState<string | null>(null);
+  const [profileImageDataUrl, setProfileImageDataUrl] = useState<string | null>(null);
   const [selectedProfileImageName, setSelectedProfileImageName] = useState("");
+  const [userId, setUserId] = useState<number | null>(null);
   const [height, setHeight] = useState("");
   const [weight, setWeight] = useState("");
   const [diseases, setDiseases] = useState<string[]>([]);
@@ -43,13 +46,16 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
       try {
         const user = await getCurrentUser(getStoredAccessToken());
         if (ignore) return;
+        const storedProfileImage = getStoredProfileImage(user.id);
+        const profileImage = storedProfileImage ?? user.profile_image_url;
+        setUserId(user.id);
         setName(user.name);
         setEmail(user.email);
         setBirthday(user.birthday);
         setGender(user.gender);
         setPhone(user.phone_number);
         setProfileImageUrl(user.profile_image_url);
-        setProfileImagePreviewUrl(user.profile_image_url);
+        setProfileImagePreviewUrl(profileImage);
         setHeight(user.height ? String(user.height) : "");
         setWeight(user.weight ? String(user.weight) : "");
         setDiseases(user.managed_diseases);
@@ -67,14 +73,6 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
   }, []);
 
   useEffect(() => {
-    return () => {
-      if (profileImagePreviewUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(profileImagePreviewUrl);
-      }
-    };
-  }, [profileImagePreviewUrl]);
-
-  useEffect(() => {
     const h = parseFloat(height);
     const w = parseFloat(weight);
     if (h > 0 && w > 0) setBmi(parseFloat((w / Math.pow(h / 100, 2)).toFixed(1)));
@@ -89,7 +87,7 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
     if (next.length !== prev.length) setShowDiseaseWarning(true);
   };
 
-  const handleProfileImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleProfileImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -98,11 +96,14 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
     }
 
     setErrorMessage("");
-    if (profileImagePreviewUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(profileImagePreviewUrl);
+    try {
+      const dataUrl = await resizeProfileImageFile(file);
+      setSelectedProfileImageName(file.name);
+      setProfileImageDataUrl(dataUrl);
+      setProfileImagePreviewUrl(dataUrl);
+    } catch {
+      setErrorMessage("프로필 사진을 처리하지 못했습니다. 다른 이미지를 선택해주세요.");
     }
-    setSelectedProfileImageName(file.name);
-    setProfileImagePreviewUrl(URL.createObjectURL(file));
   };
 
   const handleSave = async () => {
@@ -114,10 +115,14 @@ export function EditProfilePage({ onNavigate }: EditProfilePageProps) {
           phone_number: phone,
           height: height ? Number(height) : undefined,
           weight: weight ? Number(weight) : undefined,
+          profile_image_url: profileImageUrl,
           managed_diseases: diseases,
         },
         getStoredAccessToken(),
       );
+      if (userId !== null && profileImageDataUrl) {
+        setStoredProfileImage(userId, profileImageDataUrl);
+      }
       setIsSaving(false);
       setSaveSuccess(true);
       setTimeout(() => { setSaveSuccess(false); onNavigate("/mypage"); }, 1500);
