@@ -78,3 +78,114 @@ def test_clova_ocr_parser_does_not_use_not_applicable_or_reference_lipid_values(
 
     assert result["lipid"] == {}
     assert result["vitals"]["glucose_fasting"] == 121
+
+
+def test_clova_ocr_parser_scales_food_nutrition_per_100g_to_total_amount():
+    text = """
+    제품명 단백질바
+    총 내용량 140g
+    100g당
+    열량 250 kcal
+    탄수화물 30 g
+    단백질 12 g
+    지방 8 g
+    나트륨 200 mg
+    당류 10 g
+    식이섬유 4 g
+    """
+
+    result = ClovaOcrService._parse_food_nutrition_text(text)
+
+    assert result["food_name"] == "단백질바"
+    assert result["serving_basis"] == "PER_100G"
+    assert result["total_amount_g"] == 140
+    assert result["nutrition"]["calories"] == 350
+    assert result["nutrition"]["carbs_g"] == 42
+    assert result["nutrition"]["protein_g"] == 16.8
+    assert result["nutrition"]["fat_g"] == 11.2
+    assert result["nutrition"]["sodium_mg"] == 280
+    assert result["nutrition"]["sugar_g"] == 14
+    assert result["nutrition"]["fiber_g"] == 5.6
+
+
+def test_clova_ocr_parser_scales_food_nutrition_per_custom_gram_to_total_amount():
+    text = """
+    제품명 그래놀라바
+    총 내용량 90g
+    30g당 기준
+    열량 120 kcal
+    탄수화물 20 g
+    단백질 3 g
+    지방 4 g
+    나트륨 80 mg
+    당류 7 g
+    """
+
+    result = ClovaOcrService._parse_food_nutrition_text(text)
+
+    assert result["food_name"] == "그래놀라바"
+    assert result["serving_basis"] == "PER_AMOUNT_G"
+    assert result["total_amount_g"] == 90
+    assert result["basis_amount_g"] == 30
+    assert result["nutrition"]["calories"] == 360
+    assert result["nutrition"]["carbs_g"] == 60
+    assert result["nutrition"]["protein_g"] == 9
+    assert result["nutrition"]["fat_g"] == 12
+    assert result["nutrition"]["sodium_mg"] == 240
+    assert result["nutrition"]["sugar_g"] == 21
+
+
+def test_clova_ocr_parser_prefers_custom_gram_column_when_100g_column_also_exists():
+    text = """
+    총 내용량 155g
+    30g당 140 kcal
+    100g당
+    나트륨 210mg 11% 690mg 35%
+    탄수화물 22g 7% 73g 23%
+    당류 2g 2% 7g 7%
+    식이섬유 2g 8% 6g 24%
+    지방 6g 11% 20g 37%
+    트랜스지방 0g 0g
+    포화지방 1.9g 13% 6g 40%
+    콜레스테롤 0mg 0% 0mg 0%
+    단백질 1g 2% 3g 5%
+    """
+
+    result = ClovaOcrService._parse_food_nutrition_text(text)
+
+    assert result["serving_basis"] == "PER_AMOUNT_G"
+    assert result["total_amount_g"] == 155
+    assert result["basis_amount_g"] == 30
+    assert result["nutrition"]["calories"] == 723
+    assert result["nutrition"]["sodium_mg"] == 1085
+    assert result["nutrition"]["carbs_g"] == 113.67
+    assert result["nutrition"]["sugar_g"] == 10.33
+    assert result["nutrition"]["fiber_g"] == 10.33
+    assert result["nutrition"]["fat_g"] == 31
+    assert result["nutrition"]["protein_g"] == 5.17
+
+
+def test_clova_ocr_parser_does_not_treat_small_nutrient_grams_as_serving_basis():
+    text = """
+    제품명 과자
+    100g당
+    열량 595 kcal
+    탄수화물 86 g
+    단백질 12 g
+    지방 20 g
+    나트륨 0 mg
+    당류 12 g
+    식이섬유 11 g
+    """
+
+    result = ClovaOcrService._parse_food_nutrition_text(text)
+
+    assert result["serving_basis"] == "PER_100G"
+    assert result["basis_amount_g"] == 100
+    assert result["nutrition"]["calories"] == 595
+    assert result["nutrition"]["carbs_g"] == 86
+    assert result["nutrition"]["protein_g"] == 12
+    assert result["nutrition"]["fat_g"] == 20
+    assert result["nutrition"]["sodium_mg"] == 0
+    assert result["nutrition"]["sugar_g"] == 12
+    assert result["nutrition"]["fiber_g"] == 11

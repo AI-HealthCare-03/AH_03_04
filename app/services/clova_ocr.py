@@ -9,6 +9,7 @@ import httpx
 from fastapi import HTTPException, status
 
 from app.core import config
+from app.dtos.foods import FoodNutritionOcrResponse, FoodNutritionResponse
 from app.dtos.predictions import (
     HealthCheckupOcrActivityResponse,
     HealthCheckupOcrLipidResponse,
@@ -34,28 +35,45 @@ REFERENCE_VALUE_PATTERN = re.compile(
     r"reference\s*range|normal\s*range",
     flags=re.IGNORECASE,
 )
+PRODUCT_INFO_PATTERN = re.compile(
+    r"제품\s*명|품\s*명|식품\s*명|상품\s*명|food\s*name|product\s*name",
+    flags=re.IGNORECASE,
+)
 
 
 class ClovaOcrService:
+    async def analyze_food_nutrition_label_file(
+        self,
+        file_name: str,
+        content_type: str,
+        content: bytes,
+    ) -> FoodNutritionOcrResponse:
+        self._validate_ocr_settings_and_file(content)
+        image_format = self._detect_format(file_name, content_type)
+        raw_response = await self._request_clova_ocr(file_name, image_format, content)
+        extracted_text = self._extract_text(raw_response)
+        parsed = self._parse_food_nutrition_text(extracted_text)
+        return FoodNutritionOcrResponse(
+            file_name=file_name,
+            content_type=content_type,
+            extracted_text=extracted_text,
+            food_name=parsed["food_name"],
+            amount=parsed["amount"],
+            serving_basis=parsed["serving_basis"],
+            total_amount_g=parsed["total_amount_g"],
+            basis_amount_g=parsed["basis_amount_g"],
+            serving_amount_g=parsed["serving_amount_g"],
+            nutrition=FoodNutritionResponse(**parsed["nutrition"]),
+            matched_fields=parsed["matched_fields"],
+        )
+
     async def analyze_health_checkup_file(
         self,
         file_name: str,
         content_type: str,
         content: bytes,
     ) -> HealthCheckupOcrResponse:
-        if not config.CLOVA_OCR_INVOKE_URL or not config.CLOVA_OCR_SECRET_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Clova OCR 설정이 없습니다. CLOVA_OCR_INVOKE_URL과 CLOVA_OCR_SECRET_KEY를 확인해주세요.",
-            )
-        if not content:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="파일 내용이 비어 있습니다.")
-        if len(content) > MAX_OCR_FILE_SIZE_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="OCR 파일은 10MB 이하만 업로드할 수 있습니다.",
-            )
-
+        self._validate_ocr_settings_and_file(content)
         image_format = self._detect_format(file_name, content_type)
         raw_response = await self._request_clova_ocr(file_name, image_format, content)
         extracted_text = self._extract_text(raw_response)
@@ -70,6 +88,21 @@ class ClovaOcrService:
             activity=HealthCheckupOcrActivityResponse(**parsed["activity"]),
             matched_fields=parsed["matched_fields"],
         )
+
+    @staticmethod
+    def _validate_ocr_settings_and_file(content: bytes) -> None:
+        if not config.CLOVA_OCR_INVOKE_URL or not config.CLOVA_OCR_SECRET_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Clova OCR 설정이 없습니다. CLOVA_OCR_INVOKE_URL과 CLOVA_OCR_SECRET_KEY를 확인해주세요.",
+            )
+        if not content:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="파일 내용이 비어 있습니다.")
+        if len(content) > MAX_OCR_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="OCR 파일은 10MB 이하만 업로드할 수 있습니다.",
+            )
 
     @staticmethod
     def _detect_format(file_name: str, content_type: str) -> str:
@@ -249,6 +282,186 @@ class ClovaOcrService:
         return parsed
 
     @staticmethod
+    def _parse_food_nutrition_text(text: str) -> dict[str, Any]:
+        normalized = ClovaOcrService._normalize_text(text)
+        total_amount_g = ClovaOcrService._extract_amount_g(
+            normalized,
+            [
+                r"총\s*내용량",
+                r"총\s*용량",
+                r"내용량",
+                r"제품\s*중량",
+                r"net\s*weight",
+                r"total\s*weight",
+            ],
+        )
+        serving_amount_g = ClovaOcrService._extract_amount_g(
+            normalized,
+            [
+                r"1\s*회\s*제공량",
+                r"1\s*회\s*분량",
+                r"제공량",
+                r"serving\s*size",
+            ],
+        )
+        serving_basis, basis_amount_g = ClovaOcrService._detect_food_serving_basis(normalized)
+        scale = ClovaOcrService._nutrition_scale(serving_basis, total_amount_g, serving_amount_g, basis_amount_g)
+
+        raw_nutrition_specs = [
+            ("calories", [r"열량", r"칼로리", r"calories?", r"energy"], 0, 3000, int),
+            ("carbs_g", [r"탄수화물", r"carbohydrates?", r"\bcarbs?\b"], 0, 500, float),
+            ("protein_g", [r"단백질(?![가-힣])", r"protein"], 0, 300, float),
+            ("fat_g", [r"지방", r"총\s*지방", r"total\s*fat", r"\bfat\b"], 0, 300, float),
+            ("sodium_mg", [r"나트륨", r"sodium"], 0, 100000, float),
+            ("sugar_g", [r"당류", r"당\s*류", r"sugars?", r"total\s*sugars?"], 0, 300, float),
+            ("fiber_g", [r"식이\s*섬유", r"식이섬유", r"dietary\s*fiber", r"fiber"], 0, 100, float),
+        ]
+        nutrition: dict[str, int | float] = {}
+        matched_fields: list[str] = []
+        for field_name, labels, minimum, maximum, caster in raw_nutrition_specs:
+            value = ClovaOcrService._find_labeled_number(normalized, labels, minimum, maximum, caster)
+            if field_name == "calories":
+                value = ClovaOcrService._extract_basis_calories(normalized, serving_basis, basis_amount_g) or value
+            if value is None:
+                continue
+            scaled_value = ClovaOcrService._apply_nutrition_scale(value, scale, caster)
+            nutrition[field_name] = scaled_value
+            matched_fields.append(field_name)
+
+        if total_amount_g is not None:
+            matched_fields.append("total_amount_g")
+        if serving_amount_g is not None:
+            matched_fields.append("serving_amount_g")
+        if basis_amount_g is not None:
+            matched_fields.append("basis_amount_g")
+
+        return {
+            "food_name": ClovaOcrService._extract_food_name(normalized),
+            "amount": ClovaOcrService._build_food_amount_text(
+                total_amount_g, serving_amount_g, serving_basis, basis_amount_g
+            ),
+            "serving_basis": serving_basis,
+            "total_amount_g": total_amount_g,
+            "basis_amount_g": basis_amount_g,
+            "serving_amount_g": serving_amount_g,
+            "nutrition": nutrition,
+            "matched_fields": matched_fields,
+        }
+
+    @staticmethod
+    def _detect_food_serving_basis(text: str) -> tuple[str, float | None]:
+        basis_amount_g = ClovaOcrService._extract_basis_amount_g(text)
+        if basis_amount_g is not None and basis_amount_g != 100:
+            return "PER_AMOUNT_G", basis_amount_g
+        if re.search(r"100\s*g\s*(?:당|기준|per)|per\s*100\s*g", text, flags=re.IGNORECASE):
+            return "PER_100G", 100
+        if re.search(r"(?:총\s*내용량|총\s*용량|제품\s*전체|총량)\s*(?:당|기준)", text, flags=re.IGNORECASE):
+            return "TOTAL", None
+        if re.search(r"1\s*회\s*(?:제공량|분량)\s*(?:당|기준)|per\s*serving", text, flags=re.IGNORECASE):
+            return "PER_SERVING", None
+        return "UNKNOWN", None
+
+    @staticmethod
+    def _nutrition_scale(
+        serving_basis: str,
+        total_amount_g: float | None,
+        serving_amount_g: float | None,
+        basis_amount_g: float | None,
+    ) -> float:
+        if serving_basis == "PER_100G" and total_amount_g:
+            return total_amount_g / 100
+        if serving_basis == "PER_AMOUNT_G" and total_amount_g and basis_amount_g:
+            return total_amount_g / basis_amount_g
+        if serving_basis == "PER_SERVING" and total_amount_g and serving_amount_g:
+            return total_amount_g / serving_amount_g
+        return 1
+
+    @staticmethod
+    def _extract_basis_amount_g(text: str) -> float | None:
+        patterns = [
+            r"(?:^|[^\d])([1-9]\d{1,2}(?:\.\d+)?)\s*g\s*(?:당|기준|per)",
+            r"per\s*([1-9]\d{1,2}(?:\.\d+)?)\s*g",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if not match:
+                continue
+            value = round(float(match.group(1)), 2)
+            if 10 <= value <= 999:
+                return value
+        return None
+
+    @staticmethod
+    def _extract_basis_calories(text: str, serving_basis: str, basis_amount_g: float | None) -> int | None:
+        if serving_basis == "PER_AMOUNT_G" and basis_amount_g is not None:
+            amount = re.escape(ClovaOcrService._format_amount(basis_amount_g))
+            patterns = [
+                rf"{amount}\s*g\s*(?:당|기준)?[^\d]{{0,20}}(\d+(?:\.\d+)?)\s*kcal",
+                rf"(\d+(?:\.\d+)?)\s*kcal[^\n]{{0,20}}{amount}\s*g\s*(?:당|기준)?",
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, text, flags=re.IGNORECASE)
+                if match:
+                    return int(round(float(match.group(1))))
+        return None
+
+    @staticmethod
+    def _apply_nutrition_scale(value: int | float, scale: float, caster: type[int] | type[float]) -> int | float:
+        scaled = float(value) * scale
+        if caster is int:
+            return int(round(scaled))
+        return round(scaled, 2)
+
+    @staticmethod
+    def _extract_amount_g(text: str, labels: list[str]) -> float | None:
+        label_pattern = "|".join(labels)
+        patterns = [
+            rf"(?:{label_pattern})[^\d]{{0,30}}(\d+(?:\.\d+)?)\s*(?:g|그램|㎖|ml)",
+            rf"(\d+(?:\.\d+)?)\s*(?:g|그램|㎖|ml)[^\n]{{0,20}}(?:{label_pattern})",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+            if match:
+                return round(float(match.group(1)), 2)
+        return None
+
+    @staticmethod
+    def _extract_food_name(text: str) -> str | None:
+        patterns = [
+            r"(?:제품명|품명|식품명|food\s*name|product\s*name)[^\w가-힣]{0,10}([가-힣A-Za-z0-9][^\n]{1,40})",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                value = re.sub(r"\s+", " ", match.group(1)).strip(" :-")
+                return value[:40] if value else None
+        return None
+
+    @staticmethod
+    def _build_food_amount_text(
+        total_amount_g: float | None,
+        serving_amount_g: float | None,
+        serving_basis: str,
+        basis_amount_g: float | None,
+    ) -> str | None:
+        parts: list[str] = []
+        if total_amount_g is not None:
+            parts.append(f"총 {ClovaOcrService._format_amount(total_amount_g)}g")
+        if serving_basis == "PER_100G":
+            parts.append("100g당 기준 환산")
+        elif serving_basis == "PER_AMOUNT_G" and basis_amount_g is not None:
+            parts.append(f"{ClovaOcrService._format_amount(basis_amount_g)}g당 기준 환산")
+        elif serving_basis == "PER_SERVING" and serving_amount_g is not None:
+            parts.append(f"1회 제공량 {ClovaOcrService._format_amount(serving_amount_g)}g 기준 환산")
+        elif serving_basis == "UNKNOWN":
+            parts.append("기준 단위 확인 필요")
+        return ", ".join(parts) if parts else None
+
+    @staticmethod
+    def _format_amount(value: float) -> str:
+        return str(int(value)) if float(value).is_integer() else str(value)
+
+    @staticmethod
     def _normalize_text(text: str) -> str:
         return re.sub(r"[ \t]+", " ", text.replace("：", ":")).strip()
 
@@ -296,6 +509,8 @@ class ClovaOcrService:
             return False
         before_number = context[: number_match.start()]
         if NO_RESULT_PATTERN.search(before_number):
+            return True
+        if PRODUCT_INFO_PATTERN.search(before_number):
             return True
         return bool(REFERENCE_VALUE_PATTERN.search(before_number))
 
