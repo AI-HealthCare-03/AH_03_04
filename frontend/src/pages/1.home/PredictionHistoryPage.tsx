@@ -116,7 +116,7 @@ export function PredictionHistoryPage({ onNavigate }: PredictionHistoryPageProps
                 <tr key={item.result_id}>
                   <td>{formatDate(item.created_at)}</td>
                   <td>{buildResultSummary(item)}</td>
-                  <td>{formatProbability(item.highest_risk_probability)}</td>
+                  <td>{formatProbability(item.highest_risk_score ?? item.highest_risk_probability)}</td>
                   <td>{item.feedback_submitted ? "제출 완료" : "미제출"}</td>
                   <td>
                     <button

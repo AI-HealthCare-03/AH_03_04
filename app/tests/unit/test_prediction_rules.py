@@ -59,7 +59,8 @@ def test_prediction_result_list_item_uses_highest_probability_and_feedback_state
     assert item.result_id == 3
     assert item.overall_risk_level == "HIGH"
     assert item.highest_risk_disease == "diabetes"
-    assert item.highest_risk_probability == 0.65
+    assert item.highest_risk_probability == 0.12
+    assert item.highest_risk_score == 0.8
     assert item.feedback_submitted is True
     assert set(item.disease_risks) == {"diabetes", "hypertension"}
 
@@ -155,9 +156,10 @@ def test_clinical_risk_override_marks_severe_hypertension_as_high_risk():
 
     PredictionService._apply_clinical_risk_overrides("HYPERTENSION", values)
 
-    assert values["probability"] == Decimal("0.65")
+    assert values["probability"] == Decimal("0.030000")
     assert values["is_at_risk"] is True
     assert values["risk_level"] == "HIGH"
+    assert PredictionService._display_risk_score(values) == 0.8
 
 
 def test_clinical_risk_override_marks_diabetes_fasting_glucose_as_high_risk():
@@ -172,9 +174,10 @@ def test_clinical_risk_override_marks_diabetes_fasting_glucose_as_high_risk():
 
     PredictionService._apply_clinical_risk_overrides("DIABETES", values)
 
-    assert values["probability"] == Decimal("0.65")
+    assert values["probability"] == Decimal("0.009000")
     assert values["is_at_risk"] is True
     assert values["risk_level"] == "HIGH"
+    assert PredictionService._display_risk_score(values) == 0.8
 
 
 def test_clinical_risk_override_marks_borderline_fasting_glucose_as_medium_risk():
@@ -189,9 +192,10 @@ def test_clinical_risk_override_marks_borderline_fasting_glucose_as_medium_risk(
 
     PredictionService._apply_clinical_risk_overrides("DIABETES", values)
 
-    assert values["probability"] == Decimal("0.35")
+    assert values["probability"] == Decimal("0.009000")
     assert values["is_at_risk"] is True
     assert values["risk_level"] == "MEDIUM"
+    assert PredictionService._display_risk_score(values) == 0.45
 
 
 def test_clinical_risk_override_does_not_mark_hypertension_by_bmi_only():

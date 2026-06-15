@@ -42,7 +42,7 @@ function displayMissingFields(fields: string[]) {
 }
 
 function toPercent(risk: DiseaseRisk) {
-  return Math.round(risk.probability * 1000) / 10;
+  return Math.round((risk.risk_score ?? risk.probability) * 1000) / 10;
 }
 
 function normalizeRiskFactorText(value: string) {
@@ -92,7 +92,7 @@ export function PredictionResultPage({ onNavigate }: PredictionResultPageProps) 
   const lowRiskCount = resultCards.filter(([, risk]) => risk.risk_level === "LOW").length;
   const topRisk = resultCards
     .slice()
-    .sort(([, first], [, second]) => second.probability - first.probability)[0];
+    .sort(([, first], [, second]) => (second.risk_score ?? second.probability) - (first.risk_score ?? first.probability))[0];
   const missingFields = displayMissingFields(result?.input_completeness.missing_fields ?? []);
 
   return (

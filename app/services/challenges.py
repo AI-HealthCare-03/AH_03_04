@@ -69,6 +69,14 @@ DEFAULT_CHALLENGES = [
         "goal_value": 30,
         "duration_days": 21,
     },
+    {
+        "title": "종합 건강 관리",
+        "description": "걷기, 수분 섭취, 식단, 운동 기록을 균형 있게 실천합니다.",
+        "category": "COMPREHENSIVE",
+        "target_metric": "DAILY_CHECKIN",
+        "goal_value": 1,
+        "duration_days": 28,
+    },
 ]
 DEFAULT_CHALLENGE_DISEASE_TAGS = {
     "30일 걷기 챌린지": {
@@ -90,6 +98,13 @@ DEFAULT_CHALLENGE_DISEASE_TAGS = {
         "HYPERTENSION": 20,
         "OBESITY": 30,
         "DYSLIPIDEMIA": 40,
+    },
+    "종합 건강 관리": {
+        "DIABETES": 10,
+        "HYPERTENSION": 20,
+        "CKD": 30,
+        "OBESITY": 40,
+        "DYSLIPIDEMIA": 50,
     },
 }
 
@@ -285,6 +300,7 @@ class ChallengeService:
             )
 
         all_entries = await self._build_shared_challenge_leaderboard_entries(
+            current_user_id=user.id,
             challenge_ids=list(challenge_ids),
             week_start=target_week_start,
             week_end=week_end,
@@ -301,6 +317,7 @@ class ChallengeService:
 
     @staticmethod
     async def _build_shared_challenge_leaderboard_entries(
+        current_user_id: int,
         challenge_ids: list[int],
         week_start: date,
         week_end: date,
@@ -325,6 +342,8 @@ class ChallengeService:
                 checkin_date__gte=week_start,
                 checkin_date__lte=week_end,
             ).count()
+            if participant.id != current_user_id and completed_count == 0:
+                continue
             entries.append(
                 SimpleNamespace(
                     user_id=participant.id,
@@ -402,8 +421,13 @@ class ChallengeService:
 
     @staticmethod
     async def _ensure_default_challenges() -> None:
-        if not await Challenge.exists():
-            await Challenge.bulk_create([Challenge(**challenge) for challenge in DEFAULT_CHALLENGES])
+        default_titles = [challenge["title"] for challenge in DEFAULT_CHALLENGES]
+        existing_titles = set(await Challenge.filter(title__in=default_titles).values_list("title", flat=True))
+        missing_challenges = [
+            Challenge(**challenge) for challenge in DEFAULT_CHALLENGES if challenge["title"] not in existing_titles
+        ]
+        if missing_challenges:
+            await Challenge.bulk_create(missing_challenges)
         await ChallengeService._ensure_default_challenge_disease_tags()
 
     @staticmethod

@@ -637,6 +637,7 @@ class PredictionTaskStatusResponse(BaseModel):
 
 class DiseaseRiskResponse(BaseModel):
     probability: float
+    risk_score: float
     threshold: float
     is_at_risk: bool
     risk_level: str
@@ -666,6 +667,7 @@ class PredictionResultListItemResponse(BaseModel):
     overall_risk_level: str
     highest_risk_disease: str | None = None
     highest_risk_probability: float | None = None
+    highest_risk_score: float | None = None
     disease_risks: dict[str, DiseaseRiskResponse]
     input_completeness: InputCompletenessResponse
     feedback_submitted: bool

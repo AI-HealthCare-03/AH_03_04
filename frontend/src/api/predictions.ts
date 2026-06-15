@@ -91,6 +91,7 @@ export type PredictionTaskStatus = PredictionTask & {
 
 export type DiseaseRisk = {
   probability: number;
+  risk_score: number;
   threshold: number;
   is_at_risk: boolean;
   risk_level: "LOW" | "MEDIUM" | "HIGH" | string;
@@ -118,6 +119,7 @@ export type PredictionResultListItem = {
   overall_risk_level: "LOW" | "MEDIUM" | "HIGH" | string;
   highest_risk_disease: string | null;
   highest_risk_probability: number | null;
+  highest_risk_score: number | null;
   disease_risks: Record<string, DiseaseRisk>;
   input_completeness: PredictionResult["input_completeness"];
   feedback_submitted: boolean;

@@ -1786,6 +1786,7 @@ class PredictionService:
                 "risk_factors": item.risk_factors or [],
             }
             PredictionService._apply_clinical_risk_overrides(item.disease_code, values)
+            values["risk_score"] = PredictionService._display_risk_score(values)
             disease_risks[response_code] = values
         return disease_risks
 
@@ -1795,7 +1796,7 @@ class PredictionService:
         feedback_result_ids: set[int],
     ) -> PredictionResultListItemResponse:
         disease_risks = self._to_disease_risks(result.items)
-        highest_risk = max(disease_risks.items(), key=lambda item: item[1]["probability"], default=None)
+        highest_risk = max(disease_risks.items(), key=lambda item: item[1]["risk_score"], default=None)
         overall_risk_level = self._overall_risk_level(disease_risks)
         return PredictionResultListItemResponse(
             result_id=result.id,
@@ -1804,6 +1805,7 @@ class PredictionService:
             overall_risk_level=overall_risk_level,
             highest_risk_disease=highest_risk[0] if highest_risk else None,
             highest_risk_probability=highest_risk[1]["probability"] if highest_risk else None,
+            highest_risk_score=highest_risk[1]["risk_score"] if highest_risk else None,
             disease_risks=disease_risks,
             input_completeness=InputCompletenessResponse(**result.input_completeness),
             feedback_submitted=result.id in feedback_result_ids,
@@ -2103,17 +2105,23 @@ class PredictionService:
         else:
             return
 
-        probability = Decimal(str(values["probability"]))
         if high:
-            values["probability"] = max(probability, Decimal("0.65"))
             values["is_at_risk"] = True
             values["risk_level"] = "HIGH"
             values["message"] = "입력 수치가 고위험 기준에 해당합니다. 전문의와 상담해 보세요."
         elif medium and values["risk_level"] == "LOW":
-            values["probability"] = max(probability, Decimal("0.35"))
             values["is_at_risk"] = True
             values["risk_level"] = "MEDIUM"
             values["message"] = "입력 수치상 주의가 필요합니다. 생활습관 관리와 추가 확인을 권장합니다."
+
+    @staticmethod
+    def _display_risk_score(values: dict[str, Any]) -> float:
+        probability = float(values["probability"])
+        if values["risk_level"] == "HIGH":
+            return round(min(max(probability, 0.8), 0.95), 6)
+        if values["risk_level"] == "MEDIUM":
+            return round(min(max(probability, 0.45), 0.79), 6)
+        return round(min(probability, 0.44), 6)
 
     @staticmethod
     def _overall_risk_level(disease_predictions: dict[str, dict[str, Any]]) -> str:

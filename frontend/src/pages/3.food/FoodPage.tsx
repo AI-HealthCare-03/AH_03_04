@@ -95,7 +95,10 @@ function numberOrNull(value: string) {
 }
 
 function sumFoodItemNumber(items: FoodInputItem[], key: keyof Pick<FoodInputItem, "calories" | "carbs" | "protein" | "fat" | "sodium" | "sugar" | "fiberG">) {
-  const values = items.map(item => numberOrNull(item[key])).filter((value): value is number => value !== null);
+  const values = items
+    .filter(item => item.food.trim())
+    .map(item => numberOrNull(item[key]))
+    .filter((value): value is number => value !== null);
   if (values.length === 0) return null;
   return Number(values.reduce((sum, value) => sum + value, 0).toFixed(2));
 }
