@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from types import SimpleNamespace
 
-from app.dtos.challenges import ChallengeParticipationStatus
+from app.dtos.challenges import ChallengeDisplayCategory, ChallengeParticipationStatus
 from app.services.challenges import ChallengeService
 from app.services.home import HomeService
 
@@ -27,6 +27,7 @@ def test_challenge_summary_marks_joined_state():
 
     assert result.challenge_id == 1
     assert result.is_joined is True
+    assert result.category == ChallengeDisplayCategory.COMPREHENSIVE
     assert result.duration_days == 7
     assert result.difficulty == "EASY"
     assert result.reward_points == 5
@@ -51,9 +52,19 @@ def test_challenge_summary_includes_card_status_fields():
     )
 
     assert result.participant_count == 12
+    assert result.category == ChallengeDisplayCategory.EXERCISE
     assert result.today_checked is True
     assert result.difficulty == "NORMAL"
     assert result.reward_points == 10
+
+
+def test_challenge_display_category_maps_frontend_values():
+    assert ChallengeService._display_category(SimpleNamespace(category="HYDRATION", target_metric="WATER")) == "WATER"
+    assert ChallengeService._display_category(SimpleNamespace(category="ANY", target_metric="STEPS")) == "WALK"
+    assert (
+        ChallengeService._display_category(SimpleNamespace(category="BLOOD_PRESSURE", target_metric="DAILY_CHECKIN"))
+        == "COMPREHENSIVE"
+    )
 
 
 def test_challenge_summaries_can_be_sorted_by_popularity_and_duration():
@@ -68,6 +79,28 @@ def test_challenge_summaries_can_be_sorted_by_popularity_and_duration():
 
     assert [item.challenge_id for item in popular] == [2, 3, 1]
     assert [item.challenge_id for item in duration] == [3, 1, 2]
+
+
+def test_challenge_recommendations_prioritize_managed_disease_tags():
+    challenges = [
+        SimpleNamespace(challenge_id=1, participant_count=10),
+        SimpleNamespace(challenge_id=2, participant_count=20),
+        SimpleNamespace(challenge_id=3, participant_count=30),
+        SimpleNamespace(challenge_id=4, participant_count=40),
+    ]
+    tagged_rows = [
+        {"challenge_id": 1, "disease_code": "DIABETES", "priority": 20},
+        {"challenge_id": 2, "disease_code": "HYPERTENSION", "priority": 10},
+        {"challenge_id": 3, "disease_code": "DIABETES", "priority": 10},
+    ]
+
+    ranked_ids = ChallengeService._rank_challenge_ids_by_disease_tags(
+        tagged_rows,
+        managed_diseases=["DIABETES", "HYPERTENSION"],
+    )
+    result = ChallengeService._rank_recommendations_by_tags(challenges, ranked_ids)
+
+    assert [item.challenge_id for item in result] == [3, 1, 2, 4]
 
 
 def test_challenge_detail_calculates_average_completion_and_guides():
@@ -149,8 +182,11 @@ def test_challenge_badges_use_current_streak_progress():
         SimpleNamespace(checkin_date=date(2026, 6, 4), created_at=datetime(2026, 6, 4, 9, 0)),
         SimpleNamespace(checkin_date=date(2026, 6, 3), created_at=datetime(2026, 6, 3, 9, 0)),
     ]
+    earned_badges = [
+        SimpleNamespace(badge_type="STREAK_3", earned_at=datetime(2026, 6, 5, 9, 0)),
+    ]
 
-    result = ChallengeService._build_badge_list(checkins, today, "ALL")
+    result = ChallengeService._build_badge_list(checkins, today, "ALL", earned_badges)
 
     assert result.earned_count == 1
     assert result.total_completion_rate == 33.3
@@ -175,19 +211,18 @@ def test_challenge_badges_can_be_filtered_by_badge_type():
 
 
 def test_challenge_weekly_leaderboard_ranks_users_and_masks_names():
-    checkins = [
-        SimpleNamespace(user=SimpleNamespace(id=2, name="김나현")),
-        SimpleNamespace(user=SimpleNamespace(id=2, name="김나현")),
-        SimpleNamespace(user=SimpleNamespace(id=1, name="이준")),
-        SimpleNamespace(user=SimpleNamespace(id=3, name="박")),
+    entries = [
+        SimpleNamespace(rank_no=1, user_id=2, nickname_masked="김*현", total_points=20, completed_mission_count=2),
+        SimpleNamespace(rank_no=2, user_id=1, nickname_masked="이*", total_points=10, completed_mission_count=1),
+        SimpleNamespace(rank_no=3, user_id=3, nickname_masked="*", total_points=10, completed_mission_count=1),
     ]
 
     result = ChallengeService._build_weekly_leaderboard(
-        checkins=checkins,
+        entries=entries,
+        my_entry=entries[1],
         current_user_id=1,
         week_start=date(2026, 6, 1),
         week_end=date(2026, 6, 7),
-        limit=10,
     )
 
     assert [item.user_id for item in result.items] == [2, 1, 3]

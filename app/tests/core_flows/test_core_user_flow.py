@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import datetime, time
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -6,6 +6,8 @@ from httpx import ASGITransport, AsyncClient
 from starlette import status
 from tortoise.contrib.test import TestCase
 
+from ai_worker.main import PredictionWorker
+from app.core import config
 from app.main import app
 from app.models.challenges import Challenge
 from app.services.predictions import PredictionService
@@ -13,7 +15,7 @@ from app.services.predictions import PredictionService
 
 class TestCoreUserFlow(TestCase):
     async def test_signup_health_prediction_challenge_pet_and_home_flow(self):
-        today = date.today()
+        today = datetime.now(config.TIMEZONE).date()
         measured_at = datetime.combine(today, time(hour=8, minute=30))
         signup_data = {
             "email": "core-flow@example.com",
@@ -126,6 +128,7 @@ class TestCoreUserFlow(TestCase):
                     json={"health_input_id": survey_response.json()["data"]["health_input_id"]},
                     headers=headers,
                 )
+                task_processed = await PredictionWorker().process_once()
 
             task_uuid = task_response.json()["data"]["task_uuid"]
             task_status_response = await client.get(f"/api/v1/prediction-tasks/{task_uuid}/status", headers=headers)
@@ -164,6 +167,7 @@ class TestCoreUserFlow(TestCase):
         assert exercise_response.status_code == status.HTTP_201_CREATED
 
         assert task_response.status_code == status.HTTP_202_ACCEPTED
+        assert task_processed is True
         assert task_status_response.json()["data"]["status"] == "SUCCESS"
         assert prediction_result_response.status_code == status.HTTP_200_OK
         assert prediction_result_response.json()["data"]["disease_risks"]["diabetes"]["is_at_risk"] is True

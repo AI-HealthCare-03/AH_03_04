@@ -2,6 +2,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.dtos.pets import VirtualPetCreateRequest, VirtualPetNameUpdateRequest
@@ -66,7 +67,17 @@ def test_virtual_pet_activity_response_maps_recent_activity():
 def test_pet_reward_experience_applies_type_bonus():
     assert VirtualPetService._reward_experience("EXERCISE_30", 50, PetType.DOG) == 60
     assert VirtualPetService._reward_experience("DAILY_HEALTH_LOG", 40, PetType.CAT) == 48
+    assert VirtualPetService._reward_experience("VITAL_BP", 30, PetType.RABBIT) == 36
+    assert VirtualPetService._reward_experience("WATER_CHALLENGE", 20, PetType.CAPYBARA) == 24
     assert VirtualPetService._reward_experience("VITAL_BP", 30, PetType.DOG) == 30
+
+
+def test_pet_reward_claim_rejects_when_no_claimable_tasks():
+    with pytest.raises(HTTPException) as exc_info:
+        VirtualPetService._ensure_claimable_tasks([])
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "수령 가능한 오늘의 펫 보상이 없습니다."
 
 
 def test_pet_experience_can_level_up_and_update_growth_stage():
@@ -97,11 +108,17 @@ def test_pet_percent_caps_at_one_hundred():
     assert VirtualPetService._percent(1, 0) == 0
 
 
+def test_pet_water_task_accepts_activity_water_amount():
+    assert VirtualPetService._water_task_completed(water_checkin_exists=False, water_ml=1999) is False
+    assert VirtualPetService._water_task_completed(water_checkin_exists=False, water_ml=2000) is True
+    assert VirtualPetService._water_task_completed(water_checkin_exists=True, water_ml=0) is True
+
+
 def test_pet_catalog_item_unlocks_by_streak_days():
     item = {
-        "catalog_id": "DOG_GOLDEN_RETRIEVER",
-        "pet_type": PetType.DOG,
-        "display_name": "골든 리트리버",
+        "catalog_id": "PET_RABBIT",
+        "pet_type": PetType.RABBIT,
+        "display_name": "토끼",
         "required_streak_days": 3,
         "affinity_score": 2,
     }
@@ -113,15 +130,15 @@ def test_pet_catalog_item_unlocks_by_streak_days():
     assert locked.display_name == "???"
     assert locked.affinity_score is None
     assert unlocked.is_unlocked is True
-    assert unlocked.display_name == "골든 리트리버"
+    assert unlocked.display_name == "토끼"
     assert unlocked.affinity_score == 2
 
 
 def test_pet_catalog_default_item_is_always_unlocked():
     item = {
-        "catalog_id": "CAT_KOREAN_SHORT_HAIR",
+        "catalog_id": "PET_CAT",
         "pet_type": PetType.CAT,
-        "display_name": "코리안 숏헤어",
+        "display_name": "고양이",
         "required_streak_days": 0,
         "affinity_score": 3,
     }

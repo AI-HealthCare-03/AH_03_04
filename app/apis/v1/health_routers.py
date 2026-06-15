@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import ORJSONResponse as Response
 from starlette.responses import Response as EmptyResponse
 
@@ -17,6 +17,7 @@ from app.dtos.predictions import (
     ExerciseLogResponse,
     ExerciseLogUpdateRequest,
     ExerciseType,
+    HealthCheckupOcrResponse,
     HealthGoalResponse,
     HealthGoalUpdateRequest,
     HealthStatisticsResponse,
@@ -25,6 +26,7 @@ from app.dtos.predictions import (
     HealthSurveyRecordResponse,
     LipidObesityRecordCreateRequest,
     LipidObesityRecordResponse,
+    LipidObesityRecordUpdateRequest,
     MealLogCreateRequest,
     MealLogCreateResponse,
     MealLogListResponse,
@@ -35,6 +37,7 @@ from app.dtos.predictions import (
     OptionalRecordCreateResponse,
     RenalRecordCreateRequest,
     RenalRecordResponse,
+    RenalRecordUpdateRequest,
     VitalMeasureType,
     VitalRecordCreateRequest,
     VitalRecordDetailResponse,
@@ -43,9 +46,37 @@ from app.dtos.predictions import (
     VitalRecordUpdateRequest,
 )
 from app.models.users import User
+from app.services.clova_ocr import ClovaOcrService
 from app.services.predictions import HealthInputService
 
 health_router = APIRouter(tags=["health"])
+
+
+def ensure_valid_date_range(from_date: date | None, to_date: date | None) -> None:
+    if from_date is not None and to_date is not None and from_date > to_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="조회 시작일은 종료일보다 늦을 수 없습니다.",
+        )
+
+
+@health_router.post(
+    "/health/checkup-ocr",
+    response_model=DataResponse[HealthCheckupOcrResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def analyze_health_checkup_file(
+    user: Annotated[User, Depends(get_request_user)],
+    service: Annotated[ClovaOcrService, Depends(ClovaOcrService)],
+    file: Annotated[UploadFile, File(...)],
+) -> Response:
+    content = await file.read()
+    result = await service.analyze_health_checkup_file(
+        file_name=file.filename or "health-checkup",
+        content_type=file.content_type or "application/octet-stream",
+        content=content,
+    )
+    return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
 
 
 @health_router.post(
@@ -131,6 +162,34 @@ async def get_lipid_obesity_record(
     return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
 
 
+@health_router.patch(
+    "/health/lipid-obesity-records/{record_id}",
+    response_model=DataResponse[LipidObesityRecordResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def update_lipid_obesity_record(
+    record_id: int,
+    request: LipidObesityRecordUpdateRequest,
+    user: Annotated[User, Depends(get_request_user)],
+    service: Annotated[HealthInputService, Depends(HealthInputService)],
+) -> Response:
+    result = await service.update_lipid_obesity_record(user, record_id, request)
+    return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
+
+
+@health_router.delete(
+    "/health/lipid-obesity-records/{record_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_lipid_obesity_record(
+    record_id: int,
+    user: Annotated[User, Depends(get_request_user)],
+    service: Annotated[HealthInputService, Depends(HealthInputService)],
+) -> EmptyResponse:
+    await service.delete_lipid_obesity_record(user, record_id)
+    return EmptyResponse(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @health_router.post(
     "/health/renal-records",
     response_model=DataResponse[OptionalRecordCreateResponse],
@@ -173,6 +232,34 @@ async def get_renal_record(
     return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
 
 
+@health_router.patch(
+    "/health/renal-records/{record_id}",
+    response_model=DataResponse[RenalRecordResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def update_renal_record(
+    record_id: int,
+    request: RenalRecordUpdateRequest,
+    user: Annotated[User, Depends(get_request_user)],
+    service: Annotated[HealthInputService, Depends(HealthInputService)],
+) -> Response:
+    result = await service.update_renal_record(user, record_id, request)
+    return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
+
+
+@health_router.delete(
+    "/health/renal-records/{record_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_renal_record(
+    record_id: int,
+    user: Annotated[User, Depends(get_request_user)],
+    service: Annotated[HealthInputService, Depends(HealthInputService)],
+) -> EmptyResponse:
+    await service.delete_renal_record(user, record_id)
+    return EmptyResponse(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @health_router.post(
     "/health/vitals",
     response_model=DataResponse[OptionalRecordCreateResponse],
@@ -200,6 +287,7 @@ async def get_vital_records(
     measure_type: VitalMeasureType | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> Response:
+    ensure_valid_date_range(from_date, to_date)
     result = await service.get_vital_records(user, from_date, to_date, measure_type, limit)
     return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
 
@@ -272,6 +360,7 @@ async def get_activity_logs(
     to_date: Annotated[date | None, Query(alias="to")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> Response:
+    ensure_valid_date_range(from_date, to_date)
     result = await service.get_activity_logs(user, from_date, to_date, limit)
     return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
 
@@ -372,6 +461,7 @@ async def get_exercise_logs(
     exercise_type: ExerciseType | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> Response:
+    ensure_valid_date_range(from_date, to_date)
     result = await service.get_exercise_logs(user, from_date, to_date, exercise_type, limit)
     return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
 
@@ -445,6 +535,7 @@ async def get_meal_logs(
     meal_type: MealType | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> Response:
+    ensure_valid_date_range(from_date, to_date)
     result = await service.get_meal_logs(user, from_date, to_date, meal_type, limit)
     return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
 
@@ -502,6 +593,7 @@ async def get_health_statistics(
     from_date: Annotated[date | None, Query(alias="from")] = None,
     to_date: Annotated[date | None, Query(alias="to")] = None,
 ) -> Response:
+    ensure_valid_date_range(from_date, to_date)
     result = await service.get_health_statistics(user, from_date, to_date)
     return Response({"data": result.model_dump(mode="json")}, status_code=status.HTTP_200_OK)
 

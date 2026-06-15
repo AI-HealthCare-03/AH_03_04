@@ -5,7 +5,7 @@ import pytest
 
 from app.services.llm_advice import OPENAI_PROVIDER
 from app.services.llm_report import OpenAIReportClient, ReportLLMError, ReportLLMResult
-from app.services.reports import MAX_REPORT_TEXT_LENGTH, RULE_BASED_MODEL, WeeklyReportService
+from app.services.reports import MAX_REPORT_TEXT_LENGTH, REPORT_DISCLAIMER, RULE_BASED_MODEL, WeeklyReportService
 
 
 def test_week_range_starts_on_monday_and_ends_on_sunday():
@@ -13,6 +13,26 @@ def test_week_range_starts_on_monday_and_ends_on_sunday():
 
     assert week_start == date(2026, 6, 1)
     assert week_end == date(2026, 6, 7)
+
+
+def test_weekly_report_trend_uses_previous_week_source_data_without_report():
+    previous_source_summary = {
+        "health_survey_count": 0,
+        "lipid_obesity_record_count": 0,
+        "renal_record_count": 0,
+        "vital_record_count": 1,
+        "activity_log_count": 0,
+        "exercise_log_count": 0,
+        "meal_log_count": 0,
+        "prediction_count": 0,
+        "challenge_checkin_count": 0,
+    }
+
+    trend = WeeklyReportService._build_trend_summary(None, previous_source_summary)
+
+    assert trend["status"] == "UNCHANGED"
+    assert trend["previous_week_report_id"] is None
+    assert "전주 건강 기록 1건" in trend["message"]
 
 
 def test_rule_based_report_text_describes_missing_records():
@@ -187,6 +207,8 @@ async def test_generate_llm_report_uses_openai_client_when_enabled(monkeypatch):
     assert result.provider == OPENAI_PROVIDER
     assert result.model_name == "gpt-4o-mini"
     assert result.input_tokens == 30
+    assert "의료 진단" in result.report_text
+    assert len(result.report_text) <= MAX_REPORT_TEXT_LENGTH
 
 
 @pytest.mark.asyncio
@@ -196,6 +218,34 @@ async def test_generate_llm_report_returns_none_when_disabled(monkeypatch):
     result = await WeeklyReportService._generate_llm_report({"meal_log_count": 2})
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_generate_llm_report_returns_none_when_client_fails(monkeypatch):
+    class FailingOpenAIReportClient:
+        is_configured = True
+
+        def __init__(self, api_key: str | None, model_name: str, timeout_seconds: float) -> None:
+            pass
+
+        async def generate(self, source_summary: dict[str, int], max_length: int) -> ReportLLMResult:
+            raise ReportLLMError("OpenAI weekly report generation failed.")
+
+    monkeypatch.setattr("app.services.reports.config.REPORT_LLM_ENABLED", True)
+    monkeypatch.setattr("app.services.reports.config.OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.reports.config.OPENAI_MODEL", "gpt-4o-mini")
+    monkeypatch.setattr("app.services.reports.config.OPENAI_TIMEOUT_SECONDS", 10.0)
+    monkeypatch.setattr("app.services.reports.OpenAIReportClient", FailingOpenAIReportClient)
+
+    result = await WeeklyReportService._generate_llm_report({"meal_log_count": 2})
+
+    assert result is None
+
+
+def test_finalize_llm_report_adds_disclaimer_when_missing():
+    report = WeeklyReportService._finalize_llm_report("이번 주에는 식단 기록과 챌린지 실천이 확인되었습니다.")
+
+    assert REPORT_DISCLAIMER in report
 
 
 @pytest.mark.asyncio
@@ -228,6 +278,28 @@ def test_weekly_report_summary_cards_mark_risk_and_missing_records():
     assert cards[1]["value"] == "2건"
     assert cards[1]["status"] == "HIGH"
     assert cards[4]["status"] == "CAUTION"
+
+
+def test_weekly_report_pdf_export_content_is_valid_pdf_bytes():
+    report = SimpleNamespace(
+        id=31,
+        week_start_date=date(2026, 6, 1),
+        week_end_date=date(2026, 6, 7),
+        status="AVAILABLE",
+        provider="RULE_BASED",
+        report_text="이번 주 건강 기록은 총 3건 입력되었습니다.",
+        summary_cards=[
+            {"label": "건강 기록", "value": "3건", "status": "NORMAL", "description": "이번 주 입력 기록"},
+        ],
+        metric_summaries=[
+            {"label": "식단", "value": "2", "unit": "건", "status": "NORMAL", "description": "식단 기록"},
+        ],
+    )
+
+    content = WeeklyReportService._to_pdf_content(report)
+
+    assert content.startswith(b"%PDF-1.4")
+    assert b"%%EOF" in content
 
 
 def test_weekly_report_challenge_summary_calculates_completion_rate():
@@ -290,3 +362,31 @@ def test_weekly_report_overall_status_priority():
     assert WeeklyReportService._overall_status([{"status": "NORMAL"}, {"status": "CAUTION"}]) == "CAUTION"
     assert WeeklyReportService._overall_status([{"status": "HIGH"}, {"status": "CAUTION"}]) == "HIGH"
     assert WeeklyReportService._overall_status([]) == "UNAVAILABLE"
+
+
+def test_weekly_report_export_payload_contains_report_sections():
+    report = SimpleNamespace(
+        id=20,
+        week_start_date=date(2026, 6, 1),
+        week_end_date=date(2026, 6, 7),
+        status="AVAILABLE",
+        report_text="이번 주 리포트입니다.",
+        source_summary={"meal_log_count": 2},
+        summary_cards=[{"label": "식단 기록", "value": "2건", "status": "NORMAL", "description": "식단 기록 수"}],
+        metric_summaries=[
+            {"label": "식단", "value": "2", "unit": "건", "status": "NORMAL", "description": "식단 기록"}
+        ],
+        trend_summary={"status": "UNAVAILABLE", "message": "비교 없음"},
+        challenge_summary={"checkin_count": 0, "completion_rate": 0, "status": "UNAVAILABLE", "message": "체크인 없음"},
+        provider="RULE_BASED",
+        model_name=RULE_BASED_MODEL,
+        created_at=datetime(2026, 6, 7, 12, 0),
+    )
+
+    payload = WeeklyReportService._export_payload(report)
+    csv_content = WeeklyReportService._to_csv_content(report)
+
+    assert payload["report_id"] == 20
+    assert payload["summary_cards"][0]["label"] == "식단 기록"
+    assert "리포트 본문" in csv_content
+    assert "이번 주 리포트입니다." in csv_content

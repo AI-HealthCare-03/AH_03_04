@@ -142,6 +142,24 @@ class LipidObesityRecordCreateRequest(BaseModel):
         return self
 
 
+class LipidObesityRecordUpdateRequest(BaseModel):
+    record_date: date | None = None
+    total_cholesterol: Annotated[int | None, Field(default=None, ge=80, le=400)]
+    hdl_cholesterol: Annotated[int | None, Field(default=None, ge=10, le=120)]
+    ldl_cholesterol: Annotated[int | None, Field(default=None, ge=30, le=300)]
+    triglycerides: Annotated[int | None, Field(default=None, ge=30, le=1000)]
+    waist_circumference: Annotated[float | None, Field(default=None, ge=50, le=150)]
+    height: Annotated[float | None, Field(default=None, ge=130, le=210)]
+    weight: Annotated[float | None, Field(default=None, ge=30, le=200)]
+    memo: Annotated[str | None, Field(default=None, max_length=255)] = None
+
+    @model_validator(mode="after")
+    def validate_height_weight_pair(self) -> "LipidObesityRecordUpdateRequest":
+        if (self.height is None) != (self.weight is None):
+            raise ValueError("height and weight must be submitted together to update BMI.")
+        return self
+
+
 class RenalRecordCreateRequest(BaseModel):
     record_date: date
     creatinine: Annotated[float | None, Field(default=None, ge=0.1, le=20)]
@@ -156,6 +174,15 @@ class RenalRecordCreateRequest(BaseModel):
         if all(value is None for value in fields):
             raise ValueError("At least one renal measurement is required.")
         return self
+
+
+class RenalRecordUpdateRequest(BaseModel):
+    record_date: date | None = None
+    creatinine: Annotated[float | None, Field(default=None, ge=0.1, le=20)]
+    egfr: Annotated[float | None, Field(default=None, ge=0, le=200)]
+    bun: Annotated[float | None, Field(default=None, ge=0, le=200)]
+    urine_protein_pos: bool | None = None
+    memo: Annotated[str | None, Field(default=None, max_length=255)] = None
 
 
 class VitalRecordCreateRequest(BaseModel):
@@ -189,8 +216,53 @@ class VitalRecordUpdateRequest(BaseModel):
     memo: Annotated[str | None, Field(default=None, max_length=255)] = None
 
 
+class HealthCheckupOcrVitalsResponse(BaseModel):
+    sbp: int | None = None
+    dbp: int | None = None
+    glucose_fasting: int | None = None
+    glucose_postprandial: int | None = None
+
+
+class HealthCheckupOcrLipidResponse(BaseModel):
+    total_cholesterol: int | None = None
+    ldl_cholesterol: int | None = None
+    hdl_cholesterol: int | None = None
+    triglycerides: int | None = None
+    waist_circumference: float | None = None
+    height: float | None = None
+    weight: float | None = None
+
+
+class HealthCheckupOcrRenalResponse(BaseModel):
+    creatinine: float | None = None
+    egfr: float | None = None
+    bun: float | None = None
+    urine_protein_pos: bool | None = None
+
+
+class HealthCheckupOcrActivityResponse(BaseModel):
+    steps: int | None = None
+    exercise_minutes: int | None = None
+    water_ml: int | None = None
+    sleep_hours: float | None = None
+
+
+class HealthCheckupOcrResponse(BaseModel):
+    file_name: str
+    content_type: str
+    extracted_text: str
+    vitals: HealthCheckupOcrVitalsResponse
+    lipid: HealthCheckupOcrLipidResponse
+    renal: HealthCheckupOcrRenalResponse
+    activity: HealthCheckupOcrActivityResponse
+    matched_fields: list[str] = Field(default_factory=list)
+
+
 class ActivityLogCreateRequest(BaseModel):
     record_date: date
+    steps: Annotated[int | None, Field(default=None, ge=0, le=100000)]
+    exercise_minutes: Annotated[int | None, Field(default=None, ge=0, le=1440)]
+    water_ml: Annotated[int | None, Field(default=None, ge=0, le=10000)]
     alcohol_frequency: Literal[0, 1, 3] | None = None
     alcohol_amount: Annotated[int | None, Field(default=None, ge=1, le=5)]
     walking_days: Annotated[int | None, Field(default=None, ge=0, le=7)]
@@ -205,6 +277,9 @@ class ActivityLogCreateRequest(BaseModel):
         fields = [
             self.alcohol_frequency,
             self.walking_days,
+            self.steps,
+            self.exercise_minutes,
+            self.water_ml,
             self.sedentary_hours,
             self.sleep_hours,
             self.stress_level,
@@ -220,6 +295,9 @@ class ActivityLogCreateRequest(BaseModel):
 
 
 class ActivityLogUpdateRequest(BaseModel):
+    steps: Annotated[int | None, Field(default=None, ge=0, le=100000)]
+    exercise_minutes: Annotated[int | None, Field(default=None, ge=0, le=1440)]
+    water_ml: Annotated[int | None, Field(default=None, ge=0, le=10000)]
     alcohol_frequency: Literal[0, 1, 3] | None = None
     alcohol_amount: Annotated[int | None, Field(default=None, ge=1, le=5)]
     walking_days: Annotated[int | None, Field(default=None, ge=0, le=7)]
@@ -431,6 +509,9 @@ class VitalRecordDetailResponse(BaseModel):
 class ActivityLogResponse(BaseModel):
     activity_log_id: int
     record_date: date
+    steps: int | None = None
+    exercise_minutes: int | None = None
+    water_ml: int | None = None
     alcohol_frequency: int | None = None
     alcohol_amount: int | None = None
     walking_days: int | None = None
@@ -577,7 +658,7 @@ class MetricAssessmentResponse(BaseModel):
 
 
 class PredictionTaskCreateRequest(BaseModel):
-    health_input_id: int
+    health_input_id: int | None = None
     prediction_mode: Literal["SCREENING"] = "SCREENING"
 
 
@@ -598,6 +679,7 @@ class PredictionTaskStatusResponse(BaseModel):
 
 class DiseaseRiskResponse(BaseModel):
     probability: float
+    risk_score: float
     threshold: float
     is_at_risk: bool
     risk_level: str
@@ -614,9 +696,28 @@ class InputCompletenessResponse(BaseModel):
 class PredictionResultResponse(BaseModel):
     result_id: int
     prediction_mode: str
+    created_at: datetime
     disease_risks: dict[str, DiseaseRiskResponse]
     input_completeness: InputCompletenessResponse
     disclaimer: str
+
+
+class PredictionResultListItemResponse(BaseModel):
+    result_id: int
+    prediction_mode: str
+    created_at: datetime
+    overall_risk_level: str
+    highest_risk_disease: str | None = None
+    highest_risk_probability: float | None = None
+    highest_risk_score: float | None = None
+    disease_risks: dict[str, DiseaseRiskResponse]
+    input_completeness: InputCompletenessResponse
+    feedback_submitted: bool
+
+
+class PredictionResultListResponse(BaseModel):
+    total: int
+    items: list[PredictionResultListItemResponse]
 
 
 class PredictionFeedbackCreateRequest(BaseModel):

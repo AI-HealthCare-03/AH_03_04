@@ -24,6 +24,17 @@ class WithdrawalReason(StrEnum):
     OTHER = "OTHER"
 
 
+class DiseaseCode(models.Model):
+    code = fields.CharField(max_length=30, primary_key=True)
+    display_name = fields.CharField(max_length=50)
+    description = fields.CharField(max_length=255, null=True)
+    is_active = fields.BooleanField(default=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "disease_codes"
+
+
 class User(models.Model):
     id = fields.BigIntField(primary_key=True)
     email = fields.CharField(max_length=40)
@@ -33,6 +44,8 @@ class User(models.Model):
     birthday = fields.DateField()
     phone_number = fields.CharField(max_length=11)
     profile_image_url = fields.CharField(max_length=500, null=True)
+    auth_provider = fields.CharField(max_length=20, default="LOCAL")
+    google_sub = fields.CharField(max_length=128, null=True, unique=True)
     is_active = fields.BooleanField(default=True)
     is_email_verified = fields.BooleanField(default=False)
     is_admin = fields.BooleanField(default=False)
@@ -42,6 +55,34 @@ class User(models.Model):
 
     class Meta:
         table = "users"
+
+
+class UserManagedDisease(models.Model):
+    id = fields.BigIntField(primary_key=True)
+    user = fields.ForeignKeyField("models.User", related_name="managed_disease_rows", on_delete=fields.CASCADE)
+    disease_code = fields.CharField(max_length=30)
+    is_primary = fields.BooleanField(default=False)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "user_managed_diseases"
+        unique_together = (("user", "disease_code"),)
+
+
+class UserAccountStats(models.Model):
+    user = fields.OneToOneField(
+        "models.User",
+        related_name="account_stats",
+        primary_key=True,
+        on_delete=fields.CASCADE,
+    )
+    membership_grade = fields.CharField(max_length=30, default="일반 회원")
+    points = fields.IntField(default=0)
+    level = fields.IntField(default=1)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "user_account_stats"
 
 
 class EmailVerification(models.Model):

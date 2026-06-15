@@ -56,10 +56,16 @@ class OpenAIAdviceClient:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(OPENAI_CHAT_COMPLETIONS_URL, headers=headers, json=payload)
                 response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            raise AdviceLLMError(f"OpenAI advice generation failed. status={status_code}") from exc
         except (httpx.HTTPError, UnicodeEncodeError) as exc:
             raise AdviceLLMError("OpenAI advice generation failed.") from exc
 
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise AdviceLLMError("OpenAI response is not valid JSON.") from exc
         advice_text = self._extract_advice_text(data)
         usage = data.get("usage") or {}
         prompt_details = usage.get("prompt_tokens_details") or {}
