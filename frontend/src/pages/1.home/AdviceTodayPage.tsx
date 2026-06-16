@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 
 import type { AppRoute } from "../../App";
-import { generateTodayAdvice, getTodayAdvice, type DailyAdvice } from "../../api/advices";
+import {
+  generateTodayAdvice,
+  getAdviceHistory,
+  getTodayAdvice,
+  type AdviceHistoryItem,
+  type DailyAdvice,
+} from "../../api/advices";
 import { getStoredAccessToken } from "../../api/auth";
 import { ApiError } from "../../api/client";
 import { ErrorState } from "../../components/common/ErrorState";
@@ -12,8 +18,16 @@ type AdviceTodayPageProps = {
 };
 
 const MAX_DAILY_ADVICE_GENERATIONS = 2;
+const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 
 type DailyAdviceDraft = Partial<DailyAdvice>;
+type FeedbackType = AdviceHistoryItem["feedback_type"];
+
+type FeedbackDay = {
+  date: string;
+  label: string;
+  feedbackType: FeedbackType;
+};
 
 type AdviceApiResponse = {
   data?: DailyAdviceDraft | null;
@@ -49,8 +63,41 @@ function formatCreatedAt(value?: string | null) {
   return `${value.slice(0, 16).replace("T", " ")} 생성`;
 }
 
+function formatDateKey(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateKey(value: string) {
+  return new Date(`${value}T00:00:00`);
+}
+
+function buildFeedbackWeek(history: AdviceHistoryItem[]): FeedbackDay[] {
+  const feedbackByDate = new Map<string, FeedbackType>();
+  history.forEach((item) => {
+    if (item.feedback_type) {
+      feedbackByDate.set(item.advice_date, item.feedback_type);
+    }
+  });
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - index));
+    const dateKey = formatDateKey(date);
+
+    return {
+      date: dateKey,
+      label: WEEKDAY_LABELS[parseDateKey(dateKey).getDay()],
+      feedbackType: feedbackByDate.get(dateKey) ?? null,
+    };
+  });
+}
+
 export function AdviceTodayPage({ onNavigate }: AdviceTodayPageProps) {
   const [advice, setAdvice] = useState<DailyAdvice | null>(null);
+  const [feedbackWeek, setFeedbackWeek] = useState<FeedbackDay[]>(() => buildFeedbackWeek([]));
   const [remainingCount, setRemainingCount] = useState(MAX_DAILY_ADVICE_GENERATIONS);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -63,6 +110,10 @@ export function AdviceTodayPage({ onNavigate }: AdviceTodayPageProps) {
       onNavigate("/login");
       return;
     }
+
+    getAdviceHistory("LATEST", token)
+      .then((response) => setFeedbackWeek(buildFeedbackWeek(response.data ?? [])))
+      .catch(() => setFeedbackWeek(buildFeedbackWeek([])));
 
     getTodayAdvice(token)
       .then((response) => {
@@ -160,10 +211,13 @@ export function AdviceTodayPage({ onNavigate }: AdviceTodayPageProps) {
       <section className="dashboard-card feedback-week-card">
         <h2>최근 7일 조언 피드백 현황</h2>
         <div className="feedback-week-grid">
-          {["월", "화", "수", "목", "금", "토", "일"].map((day, index) => (
-            <div className={index < 3 ? "good" : index < 5 ? "bad" : ""} key={day}>
-              <span>{day}</span>
-              <strong>{index < 3 ? "👍" : index < 5 ? "👎" : ""}</strong>
+          {feedbackWeek.map((day) => (
+            <div
+              className={day.feedbackType === "HELPFUL" ? "good" : day.feedbackType === "NOT_HELPFUL" ? "bad" : ""}
+              key={day.date}
+            >
+              <span>{day.label}</span>
+              <strong>{day.feedbackType === "HELPFUL" ? "👍" : day.feedbackType === "NOT_HELPFUL" ? "👎" : ""}</strong>
             </div>
           ))}
         </div>
