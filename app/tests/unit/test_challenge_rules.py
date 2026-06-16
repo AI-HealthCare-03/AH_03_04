@@ -142,6 +142,44 @@ def test_my_challenge_response_detects_today_checkin():
     assert result.completion_rate == 40.0
 
 
+def test_challenge_health_context_satisfies_goal_metrics():
+    assert ChallengeService._health_context_satisfies_challenge(
+        SimpleNamespace(target_metric="STEPS", goal_value=6000),
+        {"steps": 6200},
+    )
+    assert ChallengeService._health_context_satisfies_challenge(
+        SimpleNamespace(target_metric="WATER", goal_value=8),
+        {"water_ml": 2000},
+    )
+    assert ChallengeService._health_context_satisfies_challenge(
+        SimpleNamespace(target_metric="EXERCISE", goal_value=30),
+        {"exercise_minutes": 30},
+    )
+    assert ChallengeService._health_context_satisfies_challenge(
+        SimpleNamespace(target_metric="DIET", goal_value=1),
+        {"meal_count": 1},
+    )
+    assert ChallengeService._health_context_satisfies_challenge(
+        SimpleNamespace(target_metric="DAILY_CHECKIN", goal_value=1),
+        {"health_record_count": 1},
+    )
+
+
+def test_challenge_health_context_rejects_unmet_goal_metrics():
+    assert not ChallengeService._health_context_satisfies_challenge(
+        SimpleNamespace(target_metric="STEPS", goal_value=6000),
+        {"steps": 5000},
+    )
+    assert not ChallengeService._health_context_satisfies_challenge(
+        SimpleNamespace(target_metric="WATER", goal_value=8),
+        {"water_ml": 1500},
+    )
+    assert not ChallengeService._health_context_satisfies_challenge(
+        SimpleNamespace(target_metric="UNKNOWN", goal_value=1),
+        {"health_record_count": 1},
+    )
+
+
 def test_challenge_checkin_response_can_mark_completed():
     checkin = SimpleNamespace(id=7, checkin_date=date(2026, 6, 2), created_at=datetime(2026, 6, 2, 14, 30))
     participation = SimpleNamespace(
