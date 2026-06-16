@@ -25,3 +25,7 @@ ai_worker/models/V8/dataset/
 /요구사항정의서*.xlsx
 /erd*.dbml
 frontend/test-results/
+
+# Playwright local test artifacts
+frontend/test-results/
+frontend/playwright-report/

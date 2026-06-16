@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 
 import type { AppRoute } from "../../App";
-import { generateTodayAdvice, getTodayAdvice, type DailyAdvice } from "../../api/advices";
+import {
+  generateTodayAdvice,
+  getAdviceHistory,
+  getTodayAdvice,
+  type AdviceHistoryItem,
+  type DailyAdvice,
+} from "../../api/advices";
 import { getStoredAccessToken } from "../../api/auth";
 import { ApiError } from "../../api/client";
 import { ErrorState } from "../../components/common/ErrorState";
@@ -11,8 +17,88 @@ type AdviceTodayPageProps = {
   onNavigate: (route: AppRoute) => void;
 };
 
+const MAX_DAILY_ADVICE_GENERATIONS = 2;
+const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
+
+type DailyAdviceDraft = Partial<DailyAdvice>;
+type FeedbackType = AdviceHistoryItem["feedback_type"];
+
+type FeedbackDay = {
+  date: string;
+  label: string;
+  feedbackType: FeedbackType;
+};
+
+type AdviceApiResponse = {
+  data?: DailyAdviceDraft | null;
+};
+
+function hasData(value: unknown): value is AdviceApiResponse {
+  return typeof value === "object" && value !== null && "data" in value;
+}
+
+function normalizeDailyAdvice(response: AdviceApiResponse | DailyAdviceDraft | null | undefined): DailyAdvice | null {
+  const raw = hasData(response) ? response.data : response;
+  if (!raw || typeof raw !== "object") return null;
+
+  const remainingCount = Number(raw.remaining_regeneration_count);
+
+  return {
+    advice_id: raw.advice_id ?? 0,
+    advice_date: raw.advice_date ?? new Date().toISOString().slice(0, 10),
+    title: raw.title || "오늘의 AI 건강 조언",
+    advice_text: raw.advice_text || "오늘의 조언을 새로 받아보세요.",
+    provider: raw.provider ?? "SYSTEM",
+    model_name: raw.model_name ?? "",
+    trigger_type: raw.trigger_type ?? "AUTO",
+    generated: raw.generated ?? false,
+    created_at: raw.created_at || new Date().toISOString(),
+    source_type: raw.source_type ?? "RULE_BASED",
+    remaining_regeneration_count: Number.isFinite(remainingCount) ? remainingCount : 0,
+  };
+}
+
+function formatCreatedAt(value?: string | null) {
+  if (!value) return "생성 시간 확인 중";
+  return `${value.slice(0, 16).replace("T", " ")} 생성`;
+}
+
+function formatDateKey(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateKey(value: string) {
+  return new Date(`${value}T00:00:00`);
+}
+
+function buildFeedbackWeek(history: AdviceHistoryItem[]): FeedbackDay[] {
+  const feedbackByDate = new Map<string, FeedbackType>();
+  history.forEach((item) => {
+    if (item.feedback_type) {
+      feedbackByDate.set(item.advice_date, item.feedback_type);
+    }
+  });
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - index));
+    const dateKey = formatDateKey(date);
+
+    return {
+      date: dateKey,
+      label: WEEKDAY_LABELS[parseDateKey(dateKey).getDay()],
+      feedbackType: feedbackByDate.get(dateKey) ?? null,
+    };
+  });
+}
+
 export function AdviceTodayPage({ onNavigate }: AdviceTodayPageProps) {
   const [advice, setAdvice] = useState<DailyAdvice | null>(null);
+  const [feedbackWeek, setFeedbackWeek] = useState<FeedbackDay[]>(() => buildFeedbackWeek([]));
+  const [remainingCount, setRemainingCount] = useState(MAX_DAILY_ADVICE_GENERATIONS);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [message, setMessage] = useState("");
@@ -25,13 +111,29 @@ export function AdviceTodayPage({ onNavigate }: AdviceTodayPageProps) {
       return;
     }
 
+    getAdviceHistory("LATEST", token)
+      .then((response) => setFeedbackWeek(buildFeedbackWeek(response.data ?? [])))
+      .catch(() => setFeedbackWeek(buildFeedbackWeek([])));
+
     getTodayAdvice(token)
       .then((response) => {
-        setAdvice(response.data);
+        const nextAdvice = normalizeDailyAdvice(response);
+        setAdvice(nextAdvice);
         setMessage("");
-        setIsLimitExceeded(response.data.remaining_regeneration_count <= 0);
+        const nextRemainingCount = nextAdvice?.remaining_regeneration_count ?? MAX_DAILY_ADVICE_GENERATIONS;
+        setRemainingCount(nextRemainingCount);
+        setIsLimitExceeded(nextRemainingCount <= 0);
       })
-      .catch(() => setMessage("오늘의 조언을 불러오지 못했습니다. 새로 받아보세요."))
+      .catch((error) => {
+        if (error instanceof ApiError && error.status === 404) {
+          setAdvice(null);
+          setRemainingCount(MAX_DAILY_ADVICE_GENERATIONS);
+          setIsLimitExceeded(false);
+          setMessage("");
+          return;
+        }
+        setMessage("오늘의 조언을 불러오지 못했습니다. 새로 받아보세요.");
+      })
       .finally(() => setIsLoading(false));
   }, [onNavigate]);
 
@@ -46,10 +148,14 @@ export function AdviceTodayPage({ onNavigate }: AdviceTodayPageProps) {
     setMessage("");
     try {
       const response = await generateTodayAdvice(token);
-      setAdvice(response.data);
-      setIsLimitExceeded(response.data.remaining_regeneration_count <= 0);
+      const nextAdvice = normalizeDailyAdvice(response);
+      setAdvice(nextAdvice);
+      const nextRemainingCount = nextAdvice?.remaining_regeneration_count ?? 0;
+      setRemainingCount(nextRemainingCount);
+      setIsLimitExceeded(nextRemainingCount <= 0);
     } catch (error) {
       if (error instanceof ApiError && error.status === 429) {
+        setRemainingCount(0);
         setIsLimitExceeded(true);
         return;
       }
@@ -61,7 +167,6 @@ export function AdviceTodayPage({ onNavigate }: AdviceTodayPageProps) {
 
   if (isLoading) return <LoadingState message="오늘의 조언을 불러오는 중입니다." />;
 
-  const remainingCount = advice?.remaining_regeneration_count ?? 0;
   const generateDisabled = isGenerating || isLimitExceeded || remainingCount <= 0;
 
   return (
@@ -94,7 +199,7 @@ export function AdviceTodayPage({ onNavigate }: AdviceTodayPageProps) {
           <span>AI</span>
           <div>
             <h2>{advice?.title ?? "오늘의 AI 건강 조언"}</h2>
-            <p>{advice ? `${advice.created_at.slice(0, 16).replace("T", " ")} 생성` : "생성된 조언 없음"}</p>
+            <p>{advice ? formatCreatedAt(advice.created_at) : "생성된 조언 없음"}</p>
           </div>
         </div>
         <div className="advice-text-box">
@@ -106,10 +211,13 @@ export function AdviceTodayPage({ onNavigate }: AdviceTodayPageProps) {
       <section className="dashboard-card feedback-week-card">
         <h2>최근 7일 조언 피드백 현황</h2>
         <div className="feedback-week-grid">
-          {["월", "화", "수", "목", "금", "토", "일"].map((day, index) => (
-            <div className={index < 3 ? "good" : index < 5 ? "bad" : ""} key={day}>
-              <span>{day}</span>
-              <strong>{index < 3 ? "👍" : index < 5 ? "👎" : ""}</strong>
+          {feedbackWeek.map((day) => (
+            <div
+              className={day.feedbackType === "HELPFUL" ? "good" : day.feedbackType === "NOT_HELPFUL" ? "bad" : ""}
+              key={day.date}
+            >
+              <span>{day.label}</span>
+              <strong>{day.feedbackType === "HELPFUL" ? "👍" : day.feedbackType === "NOT_HELPFUL" ? "👎" : ""}</strong>
             </div>
           ))}
         </div>
