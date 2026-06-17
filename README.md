@@ -405,9 +405,9 @@ docker compose up -d --force-recreate fastapi ai-worker
 cd frontend
 npm run build
 cd ..
-ssh -i ~/.ssh/all4health.pem ubuntu@15.165.80.166 "cd ~/ai_project && rm -rf frontend-dist && mkdir frontend-dist"
-scp -r -i ~/.ssh/all4health.pem frontend/dist/* ubuntu@15.165.80.166:~/ai_project/frontend-dist/
-ssh -i ~/.ssh/all4health.pem ubuntu@15.165.80.166 "cd ~/ai_project && docker compose up -d --force-recreate nginx"
+ssh -i ~/.ssh/all4health.pem ubuntu@{ip주소} "cd ~/ai_project && rm -rf frontend-dist && mkdir frontend-dist"
+scp -r -i ~/.ssh/all4health.pem frontend/dist/* ubuntu@{ip주소}:~/ai_project/frontend-dist/
+ssh -i ~/.ssh/all4health.pem ubuntu@{ip주소} "cd ~/ai_project && docker compose up -d --force-recreate nginx"
 ```
 
 배포 확인:
