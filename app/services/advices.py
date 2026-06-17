@@ -341,7 +341,7 @@ class AdviceService:
     def _to_response(
         advice: LLMAdvice,
         generated: bool,
-        remaining_regeneration_count: int = 0,
+        remaining_regeneration_count: int = MAX_DAILY_MANUAL_REGENERATIONS,
     ) -> DailyAdviceResponse:
         return DailyAdviceResponse(
             advice_id=advice.id,
